@@ -1,0 +1,14 @@
+{
+  "name": "payment-remaster",
+  "private": true,
+  "version": "0.0.0",
+  "workspaces": [
+    "workers/*",
+    "shared",
+    "lambda-bridge"
+  ],
+  "scripts": {
+    "dev": "turbo dev"
+  },
+  "devDependencies": {}
+}

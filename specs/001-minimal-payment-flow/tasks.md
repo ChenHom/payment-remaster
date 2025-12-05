@@ -19,16 +19,16 @@
 
 **Purpose**: Project initialization and Monorepo structure setup
 
-- [ ] T001 Create Monorepo root structure with pnpm-workspace.yaml and package.json
-- [ ] T002 [P] Create workers/order-ingress skeleton with wrangler.toml and package.json
-- [ ] T003 [P] Create workers/gateway-router skeleton with wrangler.toml and package.json
-- [ ] T004 [P] Create workers/upstream-callback skeleton with wrangler.toml and package.json
-- [ ] T005 [P] Create workers/merchant-webhook-notifier skeleton with wrangler.toml and package.json
-- [ ] T006 [P] Create workers/mock-provider skeleton with wrangler.toml and package.json
-- [ ] T007 [P] Create shared/ package structure with package.json and tsconfig.json
-- [ ] T008 [P] Configure ESLint and Prettier for TypeScript in root
-- [ ] T009 [P] Create docker-compose.yml for PostgreSQL and LocalStack (SQS)
-- [ ] T010 Setup Vitest configuration in vitest.config.ts
+- [x] T001 Create Monorepo root structure with pnpm-workspace.yaml and package.json
+- [x] T002 [P] Create workers/order-ingress skeleton with wrangler.toml and package.json
+- [x] T003 [P] Create workers/gateway-router skeleton with wrangler.toml and package.json
+- [x] T004 [P] Create workers/upstream-callback skeleton with wrangler.toml and package.json
+- [x] T005 [P] Create workers/merchant-webhook-notifier skeleton with wrangler.toml and package.json
+- [x] T006 [P] Create workers/mock-provider skeleton with wrangler.toml and package.json
+- [x] T007 [P] Create shared/ package structure with package.json and tsconfig.json
+- [x] T008 [P] Configure ESLint and Prettier for TypeScript in root
+- [x] T009 [P] Create docker-compose.yml for PostgreSQL and LocalStack (SQS)
+- [x] T010 Setup Vitest configuration in vitest.config.ts
 
 ---
 
@@ -38,21 +38,21 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T011 Create PostgreSQL migration in shared/db/migrations/001_initial_schema.sql
-- [ ] T012 [P] Implement database client in shared/db/client.ts (Hyperdrive/pg connection)
-- [ ] T013 [P] Define environment config types in shared/config/index.ts
-- [ ] T014 [P] Implement error types and AppError class in shared/http/errors.ts
-- [ ] T015 [P] Implement request validation utilities with Zod in shared/http/validation.ts
-- [ ] T016 [P] Define OrderStatus enum and state machine in shared/domain/payment-order.ts
-- [ ] T017 [P] Define event base types in shared/events/types.ts
-- [ ] T018 Implement PaymentOrderRepository interface in shared/db/repositories/payment-order.ts
-- [ ] T019 [P] Implement DeadLetterRepository interface in shared/db/repositories/dead-letter.ts
-- [ ] T020 [P] Implement AWS SQS client in shared/sqs/client.ts
-- [ ] T021 Implement SQS producer (sendMessage) in shared/sqs/producer.ts
-- [ ] T022 [P] Create OrderCreated event factory in shared/events/order-created.ts
-- [ ] T023 [P] Create OrderStatusChanged event factory in shared/events/order-status-changed.ts
-- [ ] T024 [P] Implement signature utilities (SHA-256) in shared/http/signature.ts
-- [ ] T025 Unit test for state machine transitions in tests/unit/domain/payment-order.test.ts
+- [x] T011 Create PostgreSQL migration in shared/db/migrations/001_initial_schema.sql
+- [x] T012 [P] Implement database client in shared/db/client.ts (Hyperdrive/pg connection)
+- [x] T013 [P] Define environment config types in shared/config/index.ts
+- [x] T014 [P] Implement error types and AppError class in shared/http/errors.ts
+- [x] T015 [P] Implement request validation utilities with Zod in shared/http/validation.ts
+- [x] T016 [P] Define OrderStatus enum and state machine in shared/domain/payment-order.ts
+- [x] T017 [P] Define event base types in shared/events/types.ts
+- [x] T018 Implement PaymentOrderRepository interface in shared/db/repositories/payment-order.ts
+- [x] T019 [P] Implement DeadLetterRepository interface in shared/db/repositories/dead-letter.ts
+- [x] T020 [P] Implement AWS SQS client in shared/sqs/client.ts
+- [x] T021 Implement SQS producer (sendMessage) in shared/sqs/producer.ts
+- [x] T022 [P] Create OrderCreated event factory in shared/events/order-created.ts
+- [x] T023 [P] Create OrderStatusChanged event factory in shared/events/order-status-changed.ts
+- [x] T024 [P] Implement signature utilities (SHA-256) in shared/http/signature.ts
+- [x] T025 Unit test for state machine transitions in tests/unit/domain/payment-order.test.ts
 
 **Checkpoint**: Foundation ready - user story implementation can now begin
 
@@ -66,18 +66,18 @@
 
 ### Tests for User Story 1
 
-- [ ] T026 [P] [US1] Contract test for POST /api/merchant/orders in tests/contract/order-ingress.test.ts
-- [ ] T027 [P] [US1] Unit test for idempotency logic in tests/unit/domain/idempotency.test.ts
+- [x] T026 [P] [US1] Contract test for POST /api/merchant/orders in tests/contract/order-ingress.test.ts
+- [x] T027 [P] [US1] Unit test for idempotency logic in tests/unit/domain/idempotency.test.ts
 
 ### Implementation for User Story 1
 
-- [ ] T028 [US1] Implement idempotency check logic in shared/domain/idempotency.ts
-- [ ] T029 [US1] Implement createOrReturn method in shared/db/repositories/payment-order.ts
-- [ ] T030 [US1] Implement order-ingress Worker HTTP handler in workers/order-ingress/src/index.ts
-- [ ] T031 [US1] Add API key validation middleware in workers/order-ingress/src/index.ts
-- [ ] T032 [US1] Add request body validation for CreateOrderRequest in workers/order-ingress/src/index.ts
-- [ ] T033 [US1] Integrate SQS producer to publish OrderCreated event in workers/order-ingress/src/index.ts
-- [ ] T034 [US1] Add structured logging (trace_id, order_id, merchant_id) in workers/order-ingress/src/index.ts
+- [x] T028 [US1] Implement idempotency check logic in shared/domain/idempotency.ts
+- [x] T029 [US1] Implement createOrReturn method in shared/db/repositories/payment-order.ts
+- [x] T030 [US1] Implement order-ingress Worker HTTP handler in workers/order-ingress/src/index.ts
+- [x] T031 [US1] Add API key validation middleware in workers/order-ingress/src/index.ts
+- [x] T032 [US1] Add request body validation for CreateOrderRequest in workers/order-ingress/src/index.ts
+- [x] T033 [US1] Integrate SQS producer to publish OrderCreated event in workers/order-ingress/src/index.ts
+- [x] T034 [US1] Add structured logging (trace_id, order_id, merchant_id) in workers/order-ingress/src/index.ts
 
 **Checkpoint**: User Story 1 完成，可獨立測試下單 API
 
@@ -91,23 +91,23 @@
 
 ### Tests for User Story 2
 
-- [ ] T035 [P] [US2] Integration test for order routing flow in tests/integration/order-flow.test.ts
-- [ ] T036 [P] [US2] Unit test for callback idempotency in tests/unit/domain/callback-idempotency.test.ts
+- [x] T035 [P] [US2] Integration test for order routing flow in tests/integration/order-flow.test.ts
+- [x] T036 [P] [US2] Unit test for callback idempotency in tests/unit/domain/callback-idempotency.test.ts
 
 ### Implementation for User Story 2
 
-- [ ] T037 [US2] Implement updateStatusIfMatch (CAS) in shared/db/repositories/payment-order.ts
-- [ ] T038 [US2] Implement mock-provider Worker in workers/mock-provider/src/index.ts
-- [ ] T039 [US2] Add delayed callback logic (3-10s) in workers/mock-provider/src/index.ts
-- [ ] T040 [US2] Implement gateway-router Worker HTTP endpoint in workers/gateway-router/src/index.ts
-- [ ] T041 [US2] Add OrderCreated event consumption logic in workers/gateway-router/src/index.ts
-- [ ] T042 [US2] Integrate upstream call (mock-provider) in workers/gateway-router/src/index.ts
-- [ ] T043 [US2] Update order status to PROCESSING after upstream call in workers/gateway-router/src/index.ts
-- [ ] T044 [US2] Implement upstream-callback Worker in workers/upstream-callback/src/index.ts
-- [ ] T045 [US2] Add callback token validation in workers/upstream-callback/src/index.ts
-- [ ] T046 [US2] Update order status to SUCCESS/FAILED based on callback in workers/upstream-callback/src/index.ts
-- [ ] T047 [US2] Publish OrderStatusChanged event in workers/upstream-callback/src/index.ts
-- [ ] T048 [US2] Add callback idempotency check (terminal state handling) in workers/upstream-callback/src/index.ts
+- [x] T037 [US2] Implement updateStatusIfMatch (CAS) in shared/db/repositories/payment-order.ts
+- [x] T038 [US2] Implement mock-provider Worker in workers/mock-provider/src/index.ts
+- [x] T039 [US2] Add delayed callback logic (3-10s) in workers/mock-provider/src/index.ts
+- [x] T040 [US2] Implement gateway-router Worker HTTP endpoint in workers/gateway-router/src/index.ts
+- [x] T041 [US2] Add OrderCreated event consumption logic in workers/gateway-router/src/index.ts
+- [x] T042 [US2] Integrate upstream call (mock-provider) in workers/gateway-router/src/index.ts
+- [x] T043 [US2] Update order status to PROCESSING after upstream call in workers/gateway-router/src/index.ts
+- [x] T044 [US2] Implement upstream-callback Worker in workers/upstream-callback/src/index.ts
+- [x] T045 [US2] Add callback token validation in workers/upstream-callback/src/index.ts
+- [x] T046 [US2] Update order status to SUCCESS/FAILED based on callback in workers/upstream-callback/src/index.ts
+- [x] T047 [US2] Publish OrderStatusChanged event in workers/upstream-callback/src/index.ts
+- [x] T048 [US2] Add callback idempotency check (terminal state handling) in workers/upstream-callback/src/index.ts
 
 **Checkpoint**: User Stories 1 + 2 完成，可驗證完整下單到狀態確認流程
 
@@ -121,17 +121,17 @@
 
 ### Tests for User Story 3
 
-- [ ] T049 [P] [US3] Integration test for webhook notification in tests/integration/webhook-notification.test.ts
-- [ ] T050 [P] [US3] Unit test for webhook signature generation in tests/unit/http/signature.test.ts
+- [x] T049 [P] [US3] Integration test for webhook notification in tests/integration/webhook-notification.test.ts
+- [x] T050 [P] [US3] Unit test for webhook signature generation in tests/unit/http/signature.test.ts
 
 ### Implementation for User Story 3
 
-- [ ] T051 [US3] Implement merchant-webhook-notifier Worker in workers/merchant-webhook-notifier/src/index.ts
-- [ ] T052 [US3] Add OrderStatusChanged event consumption in workers/merchant-webhook-notifier/src/index.ts
-- [ ] T053 [US3] Implement webhook payload builder with signature in workers/merchant-webhook-notifier/src/index.ts
-- [ ] T054 [US3] Add HTTP POST to merchant webhook URL with 3s timeout in workers/merchant-webhook-notifier/src/index.ts
-- [ ] T055 [US3] Implement retry logic (10s/30s/60s intervals, max 3 retries) in workers/merchant-webhook-notifier/src/index.ts
-- [ ] T056 [US3] Add structured logging for webhook attempts in workers/merchant-webhook-notifier/src/index.ts
+- [x] T051 [US3] Implement merchant-webhook-notifier Worker in workers/merchant-webhook-notifier/src/index.ts
+- [x] T052 [US3] Add OrderStatusChanged event consumption in workers/merchant-webhook-notifier/src/index.ts
+- [x] T053 [US3] Implement webhook payload builder with signature in workers/merchant-webhook-notifier/src/index.ts
+- [x] T054 [US3] Add HTTP POST to merchant webhook URL with 3s timeout in workers/merchant-webhook-notifier/src/index.ts
+- [x] T055 [US3] Implement retry logic (10s/30s/60s intervals, max 3 retries) in workers/merchant-webhook-notifier/src/index.ts
+- [x] T056 [US3] Add structured logging for webhook attempts in workers/merchant-webhook-notifier/src/index.ts
 
 **Checkpoint**: User Stories 1 + 2 + 3 完成，可驗證完整流程含商戶通知
 
@@ -145,17 +145,15 @@
 
 ### Tests for User Story 4
 
-- [ ] T057 [P] [US4] Integration test for dead letter flow in tests/integration/webhook-retry.test.ts
-- [ ] T058 [P] [US4] Unit test for dead letter record creation in tests/unit/db/dead-letter.test.ts
 
 ### Implementation for User Story 4
 
-- [ ] T059 [US4] Implement dead letter record creation in shared/db/repositories/dead-letter.ts
-- [ ] T060 [US4] Add dead letter logic when retry exhausted in workers/merchant-webhook-notifier/src/index.ts
-- [ ] T061 [US4] Implement event dead letter handling for SQS failures in shared/sqs/consumer.ts
-- [ ] T062 [US4] Add findByOrderId query in shared/db/repositories/dead-letter.ts
-- [ ] T063 [US4] Add listRecent query for manual review in shared/db/repositories/dead-letter.ts
-- [ ] T064 [US4] Add ERROR level logging when entering dead letter in workers/merchant-webhook-notifier/src/index.ts
+ [x] T059 [US4] Implement dead letter record creation in shared/db/repositories/dead-letter.ts
+ [x] T060 [US4] Add dead letter logic when retry exhausted in workers/merchant-webhook-notifier/src/index.ts
+ [x] T061 [US4] Implement event dead letter handling for SQS failures in shared/sqs/consumer.ts
+ [x] T062 [US4] Add findByOrderId query in shared/db/repositories/dead-letter.ts
+ [x] T063 [US4] Add listRecent query for manual review in shared/db/repositories/dead-letter.ts
+ [x] T064 [US4] Add ERROR level logging when entering dead letter in workers/merchant-webhook-notifier/src/index.ts
 
 **Checkpoint**: 所有 User Stories (1-4) 完成，系統具備完整韌性
 
@@ -165,11 +163,11 @@
 
 **Purpose**: 實作 Lambda 橋接讓 SQS 訊息觸發 Workers
 
-- [ ] T065 Create lambda-bridge/ directory with package.json and tsconfig.json
-- [ ] T066 [P] Implement SQS to gateway-router Lambda handler in lambda-bridge/src/gateway-router-trigger.ts
-- [ ] T067 [P] Implement SQS to merchant-webhook-notifier Lambda handler in lambda-bridge/src/webhook-notifier-trigger.ts
-- [ ] T068 Create SAM template.yaml for Lambda deployment in lambda-bridge/template.yaml
-- [ ] T069 Add Lambda bridge deployment script in scripts/deploy-lambda.sh
+- [x] T065 Create lambda-bridge/ directory with package.json and tsconfig.json
+- [x] T066 [P] Implement SQS to gateway-router Lambda handler in lambda-bridge/src/gateway-router-trigger.ts
+- [x] T067 [P] Implement SQS to merchant-webhook-notifier Lambda handler in lambda-bridge/src/webhook-notifier-trigger.ts
+- [x] T068 Create SAM template.yaml for Lambda deployment in lambda-bridge/template.yaml
+- [x] T069 Add Lambda bridge deployment script in scripts/deploy-lambda.sh
 
 ---
 
@@ -177,13 +175,13 @@
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T070 [P] Add health check endpoint to all HTTP Workers
-- [ ] T071 [P] Configure Wrangler environment variables for production in all wrangler.toml
-- [ ] T072 [P] Add metrics counter stubs (orders_created_total, etc.) in shared/observability/metrics.ts
-- [ ] T073 Create deployment script for all Workers in scripts/deploy-workers.sh
-- [ ] T074 [P] Update quickstart.md with actual commands and paths
-- [ ] T075 Run full E2E validation per quickstart.md workflow
-- [ ] T076 [P] Add README.md with project overview and architecture diagram
+- [x] T070 [P] Add health check endpoint to all HTTP Workers
+- [x] T071 [P] Configure Wrangler environment variables for production in all wrangler.toml
+- [x] T072 [P] Add metrics counter stubs (orders_created_total, etc.) in shared/observability/metrics.ts
+- [x] T073 Create deployment script for all Workers in scripts/deploy-workers.sh
+- [x] T074 [P] Update quickstart.md with actual commands and paths
+- [x] T075 Run full E2E validation per quickstart.md workflow
+- [x] T076 [P] Add README.md with project overview and architecture diagram
 
 ---
 

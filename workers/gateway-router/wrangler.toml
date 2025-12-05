@@ -1,0 +1,10 @@
+name = "gateway-router"
+main = "src/index.ts"
+compatibility_date = "2025-12-05"
+[vars]
+DATABASE_URL = "$(DATABASE_URL)"
+SQS_QUEUE_URL = "$(SQS_QUEUE_URL)"
+AWS_REGION = "$(AWS_REGION)"
+AWS_ACCESS_KEY_ID = "$(AWS_ACCESS_KEY_ID)"
+AWS_SECRET_ACCESS_KEY = "$(AWS_SECRET_ACCESS_KEY)"
+MOCK_PROVIDER_URL = "$(MOCK_PROVIDER_URL)"

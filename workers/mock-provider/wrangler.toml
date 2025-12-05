@@ -1,0 +1,6 @@
+name = "mock-provider"
+main = "src/index.ts"
+compatibility_date = "2025-12-05"
+[vars]
+MOCK_PROVIDER_URL = "$(MOCK_PROVIDER_URL)"
+MOCK_CALLBACK_TOKEN = "$(MOCK_CALLBACK_TOKEN)"
