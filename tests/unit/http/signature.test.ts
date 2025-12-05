@@ -1,4 +1,4 @@
-import { computeSignature } from '../../shared/src/http/signature';
+import { computeSignature } from '../../../shared/src/http/signature';
 import { describe, it, expect } from 'vitest';
 
 describe('Signature', () => {

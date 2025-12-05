@@ -1,12 +1,34 @@
-import { describe, it, expect } from 'vitest';
-import { handleRequest as orderIngress } from '../../workers/order-ingress/src/index';
-import { handleRequest as gatewayRouter } from '../../workers/gateway-router/src/index';
-import { handleRequest as mockProvider } from '../../workers/mock-provider/src/index';
-import { handleRequest as upstreamCallback } from '../../workers/upstream-callback/src/index';
-import { createInMemoryPaymentOrderRepository } from '../../shared/src/db/repositories/inmemory/payment-order';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 describe('Order full flow', async () => {
+  beforeEach(() => {
+    // Mock node-fetch
+    vi.doMock('node-fetch', () => ({
+      default: vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ success: true })
+      })
+    }));
+
+    // Mock SQS producer
+    vi.doMock('../../shared/src/sqs/producer', () => ({
+      sendMessage: vi.fn().mockResolvedValue({})
+    }));
+  });
+
+  afterEach(() => {
+    vi.doUnmock('node-fetch');
+    vi.doUnmock('../../shared/src/sqs/producer');
+    vi.resetModules();
+  });
+
   it('creates, routes, and updates to final state', async () => {
+    const { handleRequest: orderIngress } = await import('../../workers/order-ingress/src/index');
+    const { handleRequest: gatewayRouter } = await import('../../workers/gateway-router/src/index');
+    const { handleRequest: upstreamCallback } = await import('../../workers/upstream-callback/src/index');
+    const { createInMemoryPaymentOrderRepository } = await import('../../shared/src/db/repositories/inmemory/payment-order');
+
     const env = { TEST_MERCHANT_KEY: 'TEST_MERCHANT_KEY', SQS_QUEUE_URL: 'dummy', MOCK_PROVIDER_URL: 'http://localhost:3000', MOCK_CALLBACK_TOKEN: 'MOCK_CALLBACK_TOKEN' };
 
     const req = new Request('https://localhost/api/merchant/orders', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-Key': 'TEST_MERCHANT_KEY' }, body: JSON.stringify({ merchant_order_no: 'MO-10', amount: 100, currency: 'TWD' }) });

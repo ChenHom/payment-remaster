@@ -1,5 +1,11 @@
 packages:
-  - 'workers/*'
-  - 'shared'
-  - 'lambda-bridge'
-  - 'scripts'
+  - workers/*
+  - shared
+  - lambda-bridge
+  - scripts
+
+onlyBuiltDependencies:
+  - aws-sdk
+  - esbuild
+  - sharp
+  - workerd

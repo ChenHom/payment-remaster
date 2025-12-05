@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { idempotencyKeyForOrder, ensureIdempotency } from '../../shared/src/domain/idempotency';
+import { idempotencyKeyForOrder, ensureIdempotency } from '../../../shared/src/domain/idempotency';
 
 describe('Idempotency utils', () => {
   it('generates key', () => {

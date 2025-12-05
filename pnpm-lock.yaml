@@ -6,7 +6,26 @@ settings:
 
 importers:
 
-  .: {}
+  .:
+    devDependencies:
+      '@types/node-fetch':
+        specifier: ^3.0.3
+        version: 3.0.3
+      '@types/uuid':
+        specifier: ^9.0.8
+        version: 9.0.8
+      node-fetch:
+        specifier: ^2.7.0
+        version: 2.7.0
+      uuid:
+        specifier: ^13.0.0
+        version: 13.0.0
+      vitest:
+        specifier: ^1.6.1
+        version: 1.6.1(@types/node@20.19.25)
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
 
   lambda-bridge:
     dependencies:
@@ -70,6 +89,15 @@ importers:
         specifier: 'workspace:'
         version: link:../../shared
     devDependencies:
+      '@types/node':
+        specifier: ^20.6.1
+        version: 20.19.25
+      '@types/node-fetch':
+        specifier: ^3.0.3
+        version: 3.0.3
+      '@types/uuid':
+        specifier: ^9.0.3
+        version: 9.0.8
       typescript:
         specifier: ^5.3.0
         version: 5.9.3
@@ -1372,6 +1400,10 @@ packages:
   util@0.12.5:
     resolution: {integrity: sha512-kZf/K6hEIrWHI6XqOFUiiMa+79wE/D8Q+NCNAWclkyg3b4d2k7s0QGepNjiABc+aR3N1PAyHL7p6UcLY6LmrnA==}
 
+  uuid@13.0.0:
+    resolution: {integrity: sha512-XQegIaBTVUjSHliKqcnFqYypAd4S+WCYt5NIeRs6w/UAry7z8Y9j5ZwRRL4kzq9U3sD6v+85er9FvkEaBpji2w==}
+    hasBin: true
+
   uuid@8.0.0:
     resolution: {integrity: sha512-jOXGuXZAWdsTH7eZLtyXMqUb9EcWMGZNbL9YcGBJl4MH4nrxHmZJhEHvyLFrkxo+28uLb/NYRcStH48fnD0Vzw==}
     hasBin: true
@@ -2554,6 +2586,8 @@ snapshots:
       is-generator-function: 1.1.2
       is-typed-array: 1.1.15
       which-typed-array: 1.1.19
+
+  uuid@13.0.0: {}
 
   uuid@8.0.0: {}
 
