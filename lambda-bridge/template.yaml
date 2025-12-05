@@ -1,24 +1,187 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
+Description: >
+  Lambda Bridge for Payment Remaster
+  Bridges SQS events to Cloudflare Workers HTTP endpoints
+
+Globals:
+  Function:
+    Timeout: 30
+    Runtime: nodejs18.x
+    MemorySize: 256
+    Architectures:
+      - x86_64
+
+Parameters:
+  Environment:
+    Type: String
+    Default: staging
+    AllowedValues:
+      - staging
+      - production
+    Description: Deployment environment
+  GatewayRouterUrl:
+    Type: String
+    Description: URL of the Gateway Router Worker
+  WebhookNotifierUrl:
+    Type: String
+    Description: URL of the Webhook Notifier Worker
+  LogLevel:
+    Type: String
+    Default: INFO
+    AllowedValues:
+      - DEBUG
+      - INFO
+      - WARN
+      - ERROR
+    Description: Log level for Lambda functions
+  HttpTimeout:
+    Type: Number
+    Default: 5000
+    Description: HTTP timeout in milliseconds for Worker calls
+
 Resources:
-  GatewayRouterLambda:
+  # ============================================
+  # SQS Queues
+  # ============================================
+
+  # T069: Order Events Queue (for OrderCreated events)
+  OrderEventsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "payment-order-events-${Environment}"
+      VisibilityTimeout: 300  # 5 minutes
+      MessageRetentionPeriod: 1209600  # 14 days
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt OrderEventsDLQ.Arn
+        maxReceiveCount: 5
+
+  # T069: Order Events Dead Letter Queue
+  OrderEventsDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "payment-order-events-dlq-${Environment}"
+      MessageRetentionPeriod: 1209600  # 14 days
+
+  # Status Changed Events Queue (for OrderStatusChanged events)
+  StatusChangedQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "payment-status-changed-${Environment}"
+      VisibilityTimeout: 300
+      MessageRetentionPeriod: 1209600
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt StatusChangedDLQ.Arn
+        maxReceiveCount: 5
+
+  StatusChangedDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "payment-status-changed-dlq-${Environment}"
+      MessageRetentionPeriod: 1209600
+
+  # ============================================
+  # Lambda Functions
+  # ============================================
+
+  # T067: Gateway Router Trigger Function
+  GatewayRouterFunction:
     Type: AWS::Serverless::Function
     Properties:
+      FunctionName: !Sub "payment-gateway-router-trigger-${Environment}"
       Handler: src/gateway-router-trigger.handler
-      Runtime: nodejs18.x
+      Description: Consumes OrderCreated events and forwards to Gateway Router Worker
       Environment:
         Variables:
           GATEWAY_ROUTER_URL: !Ref GatewayRouterUrl
-  WebhookNotifierLambda:
+          LOG_LEVEL: !Ref LogLevel
+          HTTP_TIMEOUT: !Ref HttpTimeout
+          ENVIRONMENT: !Ref Environment
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt OrderEventsQueue.Arn
+            BatchSize: 10
+            MaximumBatchingWindowInSeconds: 0
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+      Policies:
+        - SQSPollerPolicy:
+            QueueName: !GetAtt OrderEventsQueue.QueueName
+
+  # T068: Webhook Notifier Trigger Function
+  WebhookNotifierFunction:
     Type: AWS::Serverless::Function
     Properties:
+      FunctionName: !Sub "payment-webhook-notifier-trigger-${Environment}"
       Handler: src/webhook-notifier-trigger.handler
-      Runtime: nodejs18.x
+      Description: Consumes OrderStatusChanged events and forwards to Webhook Notifier Worker
       Environment:
         Variables:
           WEBHOOK_NOTIFIER_URL: !Ref WebhookNotifierUrl
-Parameters:
-  GatewayRouterUrl:
-    Type: String
-  WebhookNotifierUrl:
-    Type: String
+          LOG_LEVEL: !Ref LogLevel
+          HTTP_TIMEOUT: !Ref HttpTimeout
+          ENVIRONMENT: !Ref Environment
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt StatusChangedQueue.Arn
+            BatchSize: 10
+            MaximumBatchingWindowInSeconds: 0
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+      Policies:
+        - SQSPollerPolicy:
+            QueueName: !GetAtt StatusChangedQueue.QueueName
+
+Outputs:
+  # Queue URLs for application configuration
+  OrderEventsQueueUrl:
+    Description: URL of the Order Events SQS Queue
+    Value: !Ref OrderEventsQueue
+    Export:
+      Name: !Sub "${AWS::StackName}-OrderEventsQueueUrl"
+
+  OrderEventsQueueArn:
+    Description: ARN of the Order Events SQS Queue
+    Value: !GetAtt OrderEventsQueue.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-OrderEventsQueueArn"
+
+  OrderEventsDLQUrl:
+    Description: URL of the Order Events Dead Letter Queue
+    Value: !Ref OrderEventsDLQ
+    Export:
+      Name: !Sub "${AWS::StackName}-OrderEventsDLQUrl"
+
+  StatusChangedQueueUrl:
+    Description: URL of the Status Changed SQS Queue
+    Value: !Ref StatusChangedQueue
+    Export:
+      Name: !Sub "${AWS::StackName}-StatusChangedQueueUrl"
+
+  StatusChangedQueueArn:
+    Description: ARN of the Status Changed SQS Queue
+    Value: !GetAtt StatusChangedQueue.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-StatusChangedQueueArn"
+
+  StatusChangedDLQUrl:
+    Description: URL of the Status Changed Dead Letter Queue
+    Value: !Ref StatusChangedDLQ
+    Export:
+      Name: !Sub "${AWS::StackName}-StatusChangedDLQUrl"
+
+  GatewayRouterFunctionArn:
+    Description: ARN of the Gateway Router Lambda Function
+    Value: !GetAtt GatewayRouterFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-GatewayRouterFunctionArn"
+
+  WebhookNotifierFunctionArn:
+    Description: ARN of the Webhook Notifier Lambda Function
+    Value: !GetAtt WebhookNotifierFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-WebhookNotifierFunctionArn"

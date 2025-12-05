@@ -145,24 +145,24 @@
 
 ### Tests for User Story 4
 
-- [ ] T057 [P] [US4] Unit test for webhook retry logic and dead letter record creation in tests/unit/domain/webhook-retry.test.ts
+- [x] T057 [P] [US4] Unit test for webhook retry logic and dead letter record creation in tests/unit/domain/webhook-retry.test.ts
   - Test 1: 驗證 3 次重試間隔為 10s/30s/60s
   - Test 2: 驗證重試 3 次失敗後建立死信記錄
   - Test 3: 驗證重複通知的冪等行為（更新而非新建）
-- [ ] T058 [P] [US4] Integration test for complete webhook failure flow in tests/integration/webhook-failure.test.ts
+- [x] T058 [P] [US4] Integration test for complete webhook failure flow in tests/integration/webhook-failure.test.ts
   - Test 1: 建立訂單 → 狀態變更 → Webhook 回傳 5xx
   - Test 2: 驗證 3 次重試後進入 dead_letter_records
   - Test 3: 驗證可查詢死信記錄並查看重試次數與錯誤訊息
 
 ### Implementation for User Story 4
 
-- [ ] T059 [US4] Implement dead letter record creation logic in shared/db/repositories/dead-letter.ts
-- [ ] T060 [US4] Add upsert method for idempotent dead letter updates in shared/db/repositories/dead-letter.ts
-- [ ] T061 [US4] Implement event dead letter handling for SQS failures in shared/sqs/consumer.ts
-- [ ] T062 [US4] Add findByOrderId query in shared/db/repositories/dead-letter.ts
-- [ ] T063 [US4] Add listRecent query for manual review in shared/db/repositories/dead-letter.ts
-- [ ] T064 [US4] Add dead letter logic when webhook retry exhausted in workers/merchant-webhook-notifier/src/index.ts
-- [ ] T065 [US4] Add ERROR level logging when entering dead letter in workers/merchant-webhook-notifier/src/index.ts
+- [x] T059 [US4] Implement dead letter record creation logic in shared/db/repositories/dead-letter.ts
+- [x] T060 [US4] Add upsert method for idempotent dead letter updates in shared/db/repositories/dead-letter.ts
+- [x] T061 [US4] Implement event dead letter handling for SQS failures in shared/sqs/consumer.ts
+- [x] T062 [US4] Add findByOrderId query in shared/db/repositories/dead-letter.ts
+- [x] T063 [US4] Add listRecent query for manual review in shared/db/repositories/dead-letter.ts
+- [x] T064 [US4] Add dead letter logic when webhook retry exhausted in workers/merchant-webhook-notifier/src/index.ts
+- [x] T065 [US4] Add ERROR level logging when entering dead letter in workers/merchant-webhook-notifier/src/index.ts
 
 **Checkpoint**: 所有 User Stories (1-4) 完成，系統具備完整韌性
 
@@ -172,24 +172,24 @@
 
 **Purpose**: 實作 Lambda 橋接讓 SQS 訊息觸發 Workers
 
-- [ ] T066 Create lambda-bridge/ directory with package.json and tsconfig.json
-- [ ] T067 [P] Implement gateway-router-trigger Lambda handler in lambda-bridge/src/gateway-router-trigger.ts
+- [x] T066 Create lambda-bridge/ directory with package.json and tsconfig.json
+- [x] T067 [P] Implement gateway-router-trigger Lambda handler in lambda-bridge/src/gateway-router-trigger.ts
   - 消費 SQS OrderCreated 事件批次（BatchSize=10）
   - HTTP POST 至 Workers /sqs/order-created 端點
   - 實作重試邏輯：5xx/timeout → Lambda 失敗（SQS 重新投遞），4xx → 成功（不重試）
   - CloudWatch 日誌記錄 trace_id、訊息 ID、處理狀態
-- [ ] T068 [P] Implement webhook-notifier-trigger Lambda handler in lambda-bridge/src/webhook-notifier-trigger.ts
+- [x] T068 [P] Implement webhook-notifier-trigger Lambda handler in lambda-bridge/src/webhook-notifier-trigger.ts
   - 消費 SQS OrderStatusChanged 事件批次（BatchSize=10）
   - HTTP POST 至 Workers /sqs/order-status-changed 端點
   - 同 T067 重試邏輯
-- [ ] T069 Create SAM template (lambda-bridge/template.yaml) with complete specifications
+- [x] T069 Create SAM template (lambda-bridge/template.yaml) with complete specifications
   - 定義 OrderEventsQueue（VisibilityTimeout=300, Retention=14 days, MaxReceiveCount=5, DLQ）
   - 定義 OrderEventsDLQ
   - 定義 GatewayRouterFunction 與 EventSourceMapping（BatchSize=10, MaximumConcurrency=10）
   - 定義 WebhookNotifierFunction 與 EventSourceMapping（同上）
   - 環境變數配置：GATEWAY_ROUTER_URL、WEBHOOK_NOTIFIER_URL、LOG_LEVEL、INVOCATION_TIMEOUT、HTTP_TIMEOUT
   - 輸出項：SQSQueueUrl、SQSQueueArn、DLQUrl、函式 ARN
-- [ ] T070 Create Lambda deployment script (scripts/deploy-lambda.sh)
+- [x] T070 Create Lambda deployment script (scripts/deploy-lambda.sh)
   - Phase 1: 驗證工具（pnpm、wrangler、aws-cli、sam、docker）與環境變數
   - Phase 3: 執行 sam validate、sam build、sam deploy
   - 擷取部署輸出（Queue URL）並打印驗證結果
@@ -202,39 +202,39 @@
 
 ### Health Check & Deployment
 
-- [ ] T071 [P] Add health check endpoint (GET /health) to all HTTP Workers
+- [x] T071 [P] Add health check endpoint (GET /health) to all HTTP Workers
   - Implemented in: workers/order-ingress, workers/upstream-callback, workers/mock-provider
   - Check items: Worker status, PostgreSQL connection, SQS connectivity
   - Response: {"status":"ok/error", "service":"...", "timestamp":"..."} with 200/503 codes
   - Response time requirement: < 2 seconds
-- [ ] T072 Create Workers deployment script (scripts/deploy-workers.sh)
+- [x] T072 Create Workers deployment script (scripts/deploy-workers.sh)
   - Phase 2: 構建 (pnpm install, type-check, test, build)
   - Phase 4: 部署 Workers (wrangler deploy per worker with env file)
   - Phase 5: 驗證部署 (Health checks, DB test, SQS test, Lambda EventSourceMapping, E2E)
   - 包含故障排查與回滾程序
-- [ ] T073 [P] Add comprehensive deployment documentation (included in spec.md)
+- [x] T073 [P] Add comprehensive deployment documentation (included in spec.md)
   - 已於 spec.md Deployment Documentation Specification 章節完整定義
   - 包含 5 階段部署流程、bash 腳本範本、驗證檢查清單、故障排查、回滾程序
 
 ### Configuration & Documentation
 
-- [ ] T074 [P] Configure environment variables in all wrangler.toml files
+- [x] T074 [P] Configure environment variables in all wrangler.toml files
   - 所有 Workers 設定: DATABASE_URL, SQS_QUEUE_URL, AWS credentials, WEBHOOK_SECRET, 等
   - Staging vs Production 環境分離
-- [ ] T075 [P] Add observability stubs in shared/observability/metrics.ts
+- [x] T075 [P] Add observability stubs in shared/observability/metrics.ts
   - Counter stubs: orders_created_total, orders_completed_total, webhook_attempts_total, webhook_failures_total, dead_letters_total
   - 標記為 "TODO" 供後續完整實作
-- [ ] T076 [P] Create README.md with complete project documentation
+- [x] T076 [P] Create README.md with complete project documentation
   - 章節: 專案概述、技術棧、專案結構、快速啟動（6 步）、部署、API 文檔、監控、架構圖
   - 包含 curl 範例、docker-compose 啟動、測試命令、troubleshooting
   - 參考 spec.md 的 README Architecture Specification 章節
 
 ### Testing & Validation
 
-- [ ] T077 [P] Update quickstart.md with actual commands and verified paths
+- [x] T077 [P] Update quickstart.md with actual commands and verified paths
   - 驗證所有命令在本機可執行
   - 檢查所有路徑是否正確
-- [ ] T078 Run full E2E validation per quickstart.md workflow
+- [x] T078 Run full E2E validation per quickstart.md workflow
   - 完整執行快速啟動步驟
   - 驗證所有 4 個 User Stories 可完全運作
   - 紀錄所有 log 輸出供驗證

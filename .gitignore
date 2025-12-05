@@ -150,3 +150,14 @@ localstack/tmp/
 
 # PostgreSQL database files
 shared/db/postgres-data/
+
+# AWS SAM build artifacts
+.aws-sam/
+samconfig.toml
+
+# Cloudflare Wrangler
+.wrangler/
+.dev.vars
+
+# macOS system files
+.DS_Store
