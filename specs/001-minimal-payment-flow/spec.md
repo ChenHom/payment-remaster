@@ -406,6 +406,51 @@
 | `failure_reason` | string | 失敗原因（失敗時） |
 | `updated_at` | string | 狀態更新時間 |
 
+---
+
+### Health Check API
+
+**Endpoint**: `GET /health`
+
+**適用範圍**: 所有 HTTP Workers
+- `workers/order-ingress`
+- `workers/upstream-callback`
+- `workers/mock-provider`
+
+**Request Headers**: 無
+
+**Response（成功 - 200）**:
+```json
+{
+  "status": "ok",
+  "service": "order-ingress",
+  "timestamp": "2025-12-05T10:00:00Z"
+}
+```
+
+**Response（故障 - 503）**:
+```json
+{
+  "status": "error",
+  "service": "order-ingress",
+  "error": "database_connection_failed",
+  "timestamp": "2025-12-05T10:00:00Z"
+}
+```
+
+**檢查項目**:
+- ✅ Cloudflare Workers 運行狀態
+- ✅ 資料庫連線（PostgreSQL Hyperdrive）：執行簡單查詢驗證連線
+- ✅ SQS 連線（AWS SDK）：驗證認證與權限
+
+**HTTP 狀態碼**:
+| 狀態碼 | 說明 |
+|--------|------|
+| 200 | 所有檢查通過，服務正常 |
+| 503 | 資料庫、SQS 或其他關鍵依賴不可用 |
+
+**Response Time 要求**: < 2 秒
+
 ## Idempotency Rules
 
 ### 商戶下單冪等
@@ -593,6 +638,231 @@
 | Env | `TEST_MERCHANT_KEY` | 環境變數 | X-API-Key 驗證用 |
 | Env | `MOCK_PROVIDER_URL` | 環境變數 | 模擬上游服務 URL |
 
+## Lambda Bridge Specification
+
+### 概述
+
+Lambda Bridge 充當 AWS SQS 與 Cloudflare Workers 之間的橋接器。當 SQS 有新訊息時，Lambda 函式將消費訊息並以 HTTP POST 方式觸發對應的 Worker 端點，Worker 完成事件處理後回傳結果給 Lambda。
+
+### 架構圖
+
+```
+SQS Queue (order-events-queue)
+    ↓
+Lambda EventSourceMapping (SQS 觸發)
+    ↓
+Lambda Handler (gateway-router-trigger / webhook-notifier-trigger)
+    ↓
+HTTP POST to Worker Endpoint
+    ↓
+Worker (gateway-router / merchant-webhook-notifier)
+    ↓
+Return Response (success/error)
+```
+
+### Lambda 訊息映射（Event Source Mapping）
+
+**SQS → Lambda 配置**:
+
+| 參數 | 值 | 說明 |
+|------|-----|------|
+| 觸發源 | `order-events-queue` | SQS 佇列名稱 |
+| 批次大小 | 10 | 單次 Lambda 呼叫的訊息數 |
+| 批次視窗 | 5 秒 | 等待訊息積累的時間 |
+| 最大重試次數 | 5 | SQS 自動重試超過此次數後進入 DLQ |
+| 死信佇列 | 啟用 | DLQ 目標：`order-events-queue-dlq` |
+
+### Lambda Handler 實作規格
+
+#### gateway-router-trigger
+
+**Endpoint**: `POST /sqs/order-created`
+
+**Event Structure**:
+```json
+{
+  "Records": [
+    {
+      "messageId": "uuid",
+      "body": "{\"event_id\":\"...\",\"event_type\":\"OrderCreated\",\"occurred_at\":\"...\",\"trace_id\":\"...\",\"payload\":{\"order_id\":\"...\",\"merchant_id\":\"...\",\"amount\":100,\"currency\":\"TWD\",\"initial_status\":\"PENDING\"}}",
+      "receiptHandle": "...",
+      "attributes": {
+        "ApproximateReceiveCount": "1",
+        "SentTimestamp": "1701505200000"
+      }
+    }
+  ]
+}
+```
+
+**Handler 邏輯**:
+1. 從 SQS `Records` 提取 `body`（JSON 字串）
+2. 解析 JSON 得到 `OrderCreated` 事件
+3. 以 HTTP POST 呼叫 `http://gateway-router.local/sqs/order-created`，傳遞事件物件
+4. 若 Worker 回傳 HTTP 200 → Lambda 返回成功（SQS 刪除訊息）
+5. 若 Worker 回傳 5xx 或 timeout → Lambda 返回失敗（SQS 重新放入佇列，等待重試）
+6. 若 Worker 回傳 4xx → Lambda 返回成功（不重試，因為客戶端錯誤）
+7. **必須**在 Worker 回傳前記錄 `trace_id`、訊息 ID、處理狀態到 CloudWatch
+
+**Response Format** (回傳給 Lambda):
+```json
+{
+  "statusCode": 200,
+  "body": "{\"status\":\"processed\"}"
+}
+```
+
+#### webhook-notifier-trigger
+
+**Endpoint**: `POST /sqs/order-status-changed`
+
+**Event Structure**:
+同上，但 `event_type` = `OrderStatusChanged`
+
+**Handler 邏輯**: 同 gateway-router-trigger，但呼叫端點為 `http://merchant-webhook-notifier.local/sqs/order-status-changed`
+
+### Environment Variables（Lambda 環境變數）
+
+| 變數名 | 值 | 說明 |
+|--------|-----|------|
+| `GATEWAY_ROUTER_URL` | `http://gateway-router.local` | Gateway Router Worker 基礎 URL |
+| `WEBHOOK_NOTIFIER_URL` | `http://merchant-webhook-notifier.local` | Webhook Notifier Worker 基礎 URL |
+| `LOG_LEVEL` | `INFO` | CloudWatch 日誌級別 |
+| `INVOCATION_TIMEOUT` | `30` | 單次 Lambda 執行逾時（秒） |
+| `HTTP_TIMEOUT` | `10` | 對 Worker 的 HTTP 呼叫逾時（秒） |
+
+### SAM Template 結構
+
+**檔案**: `lambda-bridge/template.yaml`
+
+```yaml
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2013-12-31
+Description: 'Lambda Bridge for SQS → Cloudflare Workers'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: staging
+    AllowedValues: [staging, production]
+
+Globals:
+  Function:
+    Runtime: nodejs18.x
+    Timeout: 30
+    MemorySize: 512
+    Environment:
+      Variables:
+        LOG_LEVEL: INFO
+        HTTP_TIMEOUT: '10'
+
+Resources:
+  # SQS 佇列
+  OrderEventsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 'order-events-queue-${Environment}'
+      VisibilityTimeout: 300
+      MessageRetentionPeriod: 1209600
+      DeadLetterTargetArn: !GetAtt OrderEventsDLQ.Arn
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt OrderEventsDLQ.Arn
+        maxReceiveCount: 5
+
+  OrderEventsDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 'order-events-queue-dlq-${Environment}'
+      MessageRetentionPeriod: 1209600
+
+  # Lambda 函式：GatewayRouter
+  GatewayRouterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'gateway-router-trigger-${Environment}'
+      CodeUri: ./src/gateway-router-trigger.ts
+      Handler: gateway-router-trigger.handler
+      Environment:
+        Variables:
+          GATEWAY_ROUTER_URL: !Sub 'http://gateway-router.${Environment}.local'
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt OrderEventsQueue.Arn
+            BatchSize: 10
+            ScalingConfig:
+              MaximumConcurrency: 10
+
+  # Lambda 函式：WebhookNotifier
+  WebhookNotifierFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'webhook-notifier-trigger-${Environment}'
+      CodeUri: ./src/webhook-notifier-trigger.ts
+      Handler: webhook-notifier-trigger.handler
+      Environment:
+        Variables:
+          WEBHOOK_NOTIFIER_URL: !Sub 'http://merchant-webhook-notifier.${Environment}.local'
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt OrderEventsQueue.Arn
+            BatchSize: 10
+            ScalingConfig:
+              MaximumConcurrency: 10
+
+Outputs:
+  SQSQueueUrl:
+    Description: Order Events SQS Queue URL
+    Value: !Ref OrderEventsQueue
+    Export:
+      Name: !Sub '${Environment}-OrderEventsQueueUrl'
+
+  SQSQueueArn:
+    Description: Order Events SQS Queue ARN
+    Value: !GetAtt OrderEventsQueue.Arn
+    Export:
+      Name: !Sub '${Environment}-OrderEventsQueueArn'
+
+  DLQUrl:
+    Description: Dead Letter Queue URL
+    Value: !Ref OrderEventsDLQ
+    Export:
+      Name: !Sub '${Environment}-OrderEventsDLQUrl'
+
+  GatewayRouterFunctionArn:
+    Description: GatewayRouter Lambda Function ARN
+    Value: !GetAtt GatewayRouterFunction.Arn
+
+  WebhookNotifierFunctionArn:
+    Description: WebhookNotifier Lambda Function ARN
+    Value: !GetAtt WebhookNotifierFunction.Arn
+```
+
+### 部署與驗證
+
+**部署指令** (SAM CLI):
+```bash
+sam deploy \
+  --template-file lambda-bridge/template.yaml \
+  --stack-name payment-remaster-lambda-bridge-staging \
+  --parameter-overrides Environment=staging \
+  --capabilities CAPABILITY_IAM
+```
+
+**驗證 Lambda EventSourceMapping**:
+```bash
+# 列出事件來源映射
+aws lambda list-event-source-mappings \
+  --function-name gateway-router-trigger-staging
+
+# 檢查狀態
+aws lambda get-event-source-mapping \
+  --uuid <uuid-from-above>
+```
+
 ## System Sequence Diagram
 
 ```mermaid
@@ -646,6 +916,40 @@ sequenceDiagram
 
 - Happy Path：下單 → 上游 → 回調 → Webhook 完整流程
 - 失敗路徑：Webhook 失敗 → 重試 → 進入死信佇列
+
+### User Story 4 測試規格
+
+**測試場景**：
+
+1. **Webhook 通知失敗後進入死信佇列**
+   - 前置條件：訂單狀態為 `SUCCESS` 或 `FAILED`
+   - 操作：模擬商戶 Webhook 端點回傳 500/503
+   - 驗證：
+     - 首次失敗 → 10 秒後重試
+     - 第二次失敗 → 30 秒後重試
+     - 第三次失敗 → 60 秒後重試
+     - 第四次失敗（即全部 3 次重試後仍失敗）→ 記錄寫入 `dead_letter_records` 表
+     - 檢查欄位：`order_id`, `webhook_url`, `payload`, `retry_count=3`, `last_error_message`, `last_http_status`
+
+2. **重複重試不應導致重複記錄**
+   - 前置條件：已存在死信記錄
+   - 操作：Webhook 通知再次被觸發（SQS 重試場景）
+   - 驗證：更新既有記錄而非建立新記錄，`retry_count` 遞增，`last_failed_at` 更新
+
+3. **查詢死信記錄**
+   - 操作：執行 `SELECT * FROM dead_letter_records WHERE order_id = ?`
+   - 驗證：可查詢失敗的通知詳情、重試次數、最後錯誤訊息
+
+**單元測試** (T057):
+- 測試 Webhook 重試邏輯（3 次重試間隔：10/30/60 秒）
+- 測試死信記錄建立邏輯
+- 測試重複通知的冪等行為
+
+**整合測試** (T058):
+- 建立訂單 → 狀態變更為終態
+- 模擬 Webhook 返回 5xx
+- 驗證 3 次重試後進入 `dead_letter_records`
+- 驗證可查詢死信記錄
 
 ### 負載驗證
 
@@ -706,6 +1010,268 @@ curl -X POST <webhook_url> \
 ```
 
 **說明**：本階段只提供記錄功能，不提供自動補償 UI / API。
+
+## Deployment Documentation Specification
+
+本章節定義 `scripts/deploy-lambda.sh` 與 `scripts/deploy-workers.sh` 應包含的規格與驗證步驟。
+
+### 部署流程
+
+#### Phase 1: 前置檢查
+
+```bash
+# 驗證必要工具
+- ✅ pnpm >= 8.0
+- ✅ wrangler >= 3.0
+- ✅ aws-cli >= 2.0
+- ✅ sam >= 1.80
+- ✅ docker（本機開發用）
+- ✅ git
+
+# 驗證環境變數
+- ✅ AWS_REGION 已設定
+- ✅ AWS_ACCESS_KEY_ID 已設定
+- ✅ AWS_SECRET_ACCESS_KEY 已設定
+- ✅ CLOUDFLARE_API_TOKEN 已設定
+- ✅ DATABASE_URL（本機）或 HYPERDRIVE_ID（production）已設定
+```
+
+#### Phase 2: 構建 Workers
+
+**步驟**:
+1. 安裝依賴：`pnpm install --frozen-lockfile`
+2. 執行 TypeScript 型別檢查：`pnpm run type-check`
+3. 執行單元測試：`pnpm run test:unit`
+4. 構建所有 Workers：`pnpm run build --filter='./workers/*'`
+
+**驗證**:
+- ✅ 無 TypeScript 編譯錯誤
+- ✅ 所有單元測試通過
+- ✅ 所有 Worker 生成 `dist/` 目錄
+
+#### Phase 3: 部署 Lambda Bridge
+
+**檔案**: `scripts/deploy-lambda.sh`
+
+```bash
+#!/bin/bash
+set -euo pipefail
+
+ENVIRONMENT=${1:-staging}
+REGION=${AWS_REGION:-ap-northeast-1}
+
+echo "🚀 Deploying Lambda Bridge to $ENVIRONMENT..."
+
+# 驗證 SAM 模板
+sam validate --template lambda-bridge/template.yaml
+
+# 構建 Lambda 函式
+sam build \
+  --template lambda-bridge/template.yaml \
+  --use-container
+
+# 部署到 AWS
+sam deploy \
+  --template .aws-sam/build/template.yaml \
+  --stack-name payment-remaster-lambda-bridge-$ENVIRONMENT \
+  --parameter-overrides Environment=$ENVIRONMENT \
+  --region $REGION \
+  --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND \
+  --no-confirm-changeset
+
+# 取得輸出值
+QUEUE_URL=$(aws cloudformation describe-stacks \
+  --stack-name payment-remaster-lambda-bridge-$ENVIRONMENT \
+  --region $REGION \
+  --query 'Stacks[0].Outputs[?OutputKey==`SQSQueueUrl`].OutputValue' \
+  --output text)
+
+echo "✅ Lambda Bridge deployed successfully"
+echo "📦 SQS Queue URL: $QUEUE_URL"
+```
+
+#### Phase 4: 部署 Workers
+
+**檔案**: `scripts/deploy-workers.sh`
+
+```bash
+#!/bin/bash
+set -euo pipefail
+
+ENVIRONMENT=${1:-staging}
+ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID?}
+
+echo "🚀 Deploying Cloudflare Workers to $ENVIRONMENT..."
+
+# 部署每個 Worker
+WORKERS=(
+  "workers/order-ingress"
+  "workers/gateway-router"
+  "workers/upstream-callback"
+  "workers/merchant-webhook-notifier"
+  "workers/mock-provider"
+)
+
+for WORKER_PATH in "${WORKERS[@]}"; do
+  WORKER_NAME=$(basename $WORKER_PATH)
+
+  echo "Deploying $WORKER_NAME..."
+
+  cd $WORKER_PATH
+
+  # 構建
+  pnpm run build
+
+  # 設定環境
+  cat > .env.$ENVIRONMENT <<EOF
+ENVIRONMENT=$ENVIRONMENT
+DATABASE_URL=$DATABASE_URL
+SQS_QUEUE_URL=$SQS_QUEUE_URL
+AWS_REGION=$AWS_REGION
+AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+WEBHOOK_SECRET=$WEBHOOK_SECRET
+MOCK_CALLBACK_TOKEN=$MOCK_CALLBACK_TOKEN
+TEST_MERCHANT_KEY=$TEST_MERCHANT_KEY
+MOCK_PROVIDER_URL=$MOCK_PROVIDER_URL
+EOF
+
+  # 部署
+  wrangler deploy \
+    --env=$ENVIRONMENT
+
+  cd -
+
+  echo "✅ $WORKER_NAME deployed"
+done
+
+echo "✅ All Workers deployed successfully"
+```
+
+#### Phase 5: 驗證部署
+
+**檢查清單**:
+
+```bash
+# 1. Health Check（所有 HTTP Workers）
+for WORKER_URL in \
+  "https://order-ingress.$ENVIRONMENT.workers.dev/health" \
+  "https://upstream-callback.$ENVIRONMENT.workers.dev/health" \
+  "https://mock-provider.$ENVIRONMENT.workers.dev/health"
+do
+  RESPONSE=$(curl -s "$WORKER_URL")
+  if echo "$RESPONSE" | grep -q '"status":"ok"'; then
+    echo "✅ $WORKER_URL is healthy"
+  else
+    echo "❌ $WORKER_URL is unhealthy"
+    exit 1
+  fi
+done
+
+# 2. 資料庫連線測試
+psql $DATABASE_URL -c "SELECT 1;" > /dev/null
+
+# 3. SQS 佇列驗證
+aws sqs get-queue-attributes \
+  --queue-url $SQS_QUEUE_URL \
+  --attribute-names All
+
+# 4. Lambda EventSourceMapping 驗證
+aws lambda list-event-source-mappings \
+  --function-name gateway-router-trigger-$ENVIRONMENT
+
+# 5. 運行基本功能測試
+pnpm run test:e2e -- --environment $ENVIRONMENT
+```
+
+### 故障排查
+
+#### Worker 部署失敗
+
+**症狀**: `wrangler deploy` 回傳錯誤
+
+**排查步驟**:
+1. 檢查 Wrangler 設定：`cat wrangler.toml`
+2. 驗證 API Token：`wrangler whoami`
+3. 檢查環境變數：`env | grep CLOUDFLARE`
+4. 查看詳細日誌：`wrangler deploy --debug`
+
+#### Lambda EventSourceMapping 失敗
+
+**症狀**: SQS 訊息未傳送到 Lambda
+
+**排查步驟**:
+```bash
+# 檢查 EventSourceMapping 狀態
+aws lambda get-event-source-mapping \
+  --uuid <mapping-uuid> \
+  --query 'State'
+
+# 檢查 Lambda 執行角色
+aws lambda get-function \
+  --function-name gateway-router-trigger-staging \
+  --query 'Configuration.Role'
+
+# 檢查 SQS 權限策略
+aws sqs get-queue-attributes \
+  --queue-url $SQS_QUEUE_URL \
+  --attribute-names Policy
+```
+
+#### 資料庫連線失敗
+
+**症狀**: Worker 日誌顯示 `database connection refused`
+
+**排查步驟**:
+1. 驗證 DATABASE_URL 格式：`echo $DATABASE_URL`
+2. 測試 PostgreSQL 連線：`psql $DATABASE_URL -c "SELECT version();"`
+3. 檢查 Hyperdrive 繫結（production）：`wrangler hyperdrive list`
+4. 檢查網路安全群組／防火牆規則
+
+### 回滾程序
+
+**回滾 Workers** (回到前一個版本):
+```bash
+# 1. 查看部署歷史
+wrangler rollback --list
+
+# 2. 回滾到指定版本
+wrangler rollback --message "Revert due to bug"
+
+# 3. 驗證回滾
+curl https://order-ingress.staging.workers.dev/health
+```
+
+**回滾 Lambda**:
+```bash
+# 1. 查看 CloudFormation 變更集
+aws cloudformation list-stacks \
+  --stack-name payment-remaster-lambda-bridge-staging \
+  --query 'StackSummaries[0].StackStatus'
+
+# 2. 繼續前一個堆疊
+aws cloudformation update-stack-instances \
+  --stack-name payment-remaster-lambda-bridge-staging \
+  --accounts [account-id] \
+  --regions ap-northeast-1 \
+  --operation-preferences MaxConcurrentPercentage=100
+```
+
+### 部署檢查清單
+
+- [ ] 所有 pnpm 依賴已安裝
+- [ ] TypeScript 無編譯錯誤
+- [ ] 單元測試全部通過 (100% coverage 目標)
+- [ ] 所有 Workers 成功構建
+- [ ] Lambda SAM 模板驗證通過
+- [ ] Lambda 部署完成，EventSourceMapping 激活
+- [ ] 所有 Workers 部署完成
+- [ ] 所有 Health Check 端點回傳 200
+- [ ] 資料庫連線測試通過
+- [ ] SQS 佇列可存取
+- [ ] 基本功能 E2E 測試通過
+- [ ] 日誌系統正常運作（CloudWatch / Wrangler Tail）
+- [ ] 監控告警已配置（可選，本階段）
 
 ## Success Criteria *(mandatory)*
 
@@ -875,3 +1441,423 @@ CREATE INDEX idx_event_dead_letters_event_type
 CREATE INDEX idx_event_dead_letters_failed_at
   ON event_dead_letters (failed_at);
 ```
+
+## Appendix: README Architecture Specification (T076)
+
+本章節定義專案根目錄 `README.md` 的結構與內容。
+
+### README 章節結構
+
+```markdown
+# payment-remaster
+
+## 專案概述
+
+簡短說明：本專案實現了 Cloudflare Workers 與 AWS Lambda 驅動的代收交易平台。
+主要功能：訂單管理、上游路由、Webhook 通知、死信機制。
+
+## 技術棧
+
+### 前端 / API 層
+- **Cloudflare Workers**: TypeScript Edge Runtime
+  - `workers/order-ingress`: 商戶下單入口
+  - `workers/gateway-router`: 交易路由（Event Consumer via Lambda）
+  - `workers/upstream-callback`: 上游回調接收
+  - `workers/merchant-webhook-notifier`: 商戶通知（Event Consumer via Lambda）
+  - `workers/mock-provider`: 模擬上游服務
+
+### 中間層
+- **AWS Lambda Bridge**: SQS → Workers 事件橋接
+  - `lambda-bridge/src/gateway-router-trigger.ts`: OrderCreated 消費者
+  - `lambda-bridge/src/webhook-notifier-trigger.ts`: OrderStatusChanged 消費者
+
+### 儲存層
+- **PostgreSQL**: 訂單與死信記錄持久化
+- **AWS SQS**: 事件佇列（OrderCreated, OrderStatusChanged）
+- **Cloudflare Hyperdrive**: PostgreSQL 連線池（production）
+
+### 開發工具
+- **pnpm**: Monorepo 套件管理
+- **TypeScript**: 靜態型別檢查
+- **Vitest**: 單元與整合測試
+- **Zod**: 請求驗證
+- **Wrangler**: Cloudflare Workers CLI
+- **AWS SAM**: Lambda & SQS 定義與部署
+- **Docker**: 本機開發環境（PostgreSQL, LocalStack）
+
+## 專案結構
+
+\`\`\`
+payment-remaster/
+├── specs/
+│   └── 001-minimal-payment-flow/      # 規格文件
+│       ├── spec.md                    # 功能規格
+│       ├── tasks.md                   # 實作任務清單
+│       ├── plan.md                    # 技術計畫
+│       ├── data-model.md              # 資料模型定義
+│       ├── research.md                # 技術決策記錄
+│       ├── quickstart.md              # 本機啟動指南
+│       ├── contracts/
+│       │   └── openapi.yaml           # API 契約
+│       └── checklists/
+│           └── requirements.md        # 品質檢查清單
+│
+├── workers/                           # Cloudflare Workers
+│   ├── order-ingress/                 # 商戶下單 API
+│   ├── gateway-router/                # 交易路由（Event Consumer）
+│   ├── upstream-callback/             # 上游回調接收
+│   ├── merchant-webhook-notifier/     # 商戶通知（Event Consumer）
+│   └── mock-provider/                 # 模擬上游服務
+│
+├── shared/                            # 共享程式庫
+│   ├── src/
+│   │   ├── config/                    # 環境設定
+│   │   ├── db/                        # 資料庫層
+│   │   │   ├── client.ts              # PostgreSQL 連線
+│   │   │   ├── migrations/            # Schema 遷移
+│   │   │   └── repositories/          # 資料存取層
+│   │   ├── domain/                    # 領域邏輯
+│   │   │   ├── payment-order.ts       # 訂單狀態機
+│   │   │   └── idempotency.ts         # 冪等檢查
+│   │   ├── events/                    # 事件定義
+│   │   │   ├── types.ts               # 事件型別
+│   │   │   ├── order-created.ts       # OrderCreated 工廠
+│   │   │   └── order-status-changed.ts # OrderStatusChanged 工廠
+│   │   ├── http/                      # HTTP 工具
+│   │   │   ├── errors.ts              # 錯誤型別
+│   │   │   ├── validation.ts          # Zod 驗證規則
+│   │   │   └── signature.ts           # SHA-256 簽名
+│   │   ├── sqs/                       # SQS 整合
+│   │   │   ├── client.ts              # AWS SDK 設定
+│   │   │   ├── producer.ts            # 事件發佈
+│   │   │   └── consumer.ts            # 事件消費（Lambda Bridge）
+│   │   └── observability/             # 監控
+│   │       └── metrics.ts             # Metrics stubs
+│   └── tsconfig.json
+│
+├── lambda-bridge/                     # AWS Lambda 橋接
+│   ├── src/
+│   │   ├── gateway-router-trigger.ts  # OrderCreated → gateway-router
+│   │   └── webhook-notifier-trigger.ts # OrderStatusChanged → notifier
+│   ├── template.yaml                  # SAM 定義
+│   ├── package.json
+│   └── tsconfig.json
+│
+├── tests/                             # 測試組織
+│   ├── unit/                          # 單元測試
+│   │   ├── domain/
+│   │   ├── http/
+│   │   └── db/
+│   ├── integration/                   # 整合測試
+│   ├── contract/                      # 契約測試
+│   └── fixtures/                      # 測試資料
+│
+├── scripts/                           # 部署與操作腳本
+│   ├── deploy-workers.sh              # 部署 Workers
+│   ├── deploy-lambda.sh               # 部署 Lambda Bridge
+│   └── e2e.sh                         # E2E 驗證
+│
+├── docker-compose.yml                 # 本機開發環境
+├── vitest.config.ts                   # 測試設定
+├── pnpm-workspace.yaml                # Monorepo 設定
+├── package.json                       # Root 套件設定
+└── README.md                          # 本檔
+\`\`\`
+
+## 快速啟動
+
+### 前置需求
+- Node.js >= 18.0
+- pnpm >= 8.0
+- Docker & Docker Compose（本機開發）
+- AWS CLI >= 2.0（部署用）
+- Wrangler >= 3.0（Cloudflare Workers CLI）
+- SAM CLI >= 1.80（Lambda 部署）
+
+### 1. 安裝依賴
+
+\`\`\`bash
+pnpm install --frozen-lockfile
+\`\`\`
+
+### 2. 設定環境變數
+
+\`\`\`bash
+# 複製環境檔案
+cp .env.example .env.local
+
+# 編輯設定
+vim .env.local
+\`\`\`
+
+**必要變數** (本機開發):
+\`\`\`bash
+DATABASE_URL=postgresql://user:password@localhost:5432/payment_remaster
+SQS_QUEUE_URL=http://localhost:4566/000000000000/order-events-queue
+AWS_REGION=ap-northeast-1
+AWS_ACCESS_KEY_ID=test
+AWS_SECRET_ACCESS_KEY=test
+WEBHOOK_SECRET=your-webhook-secret
+MOCK_CALLBACK_TOKEN=your-callback-token
+TEST_MERCHANT_KEY=TEST_MERCHANT_KEY
+MOCK_PROVIDER_URL=http://localhost:8787/mock-provider
+\`\`\`
+
+### 3. 啟動本機環境
+
+\`\`\`bash
+# 啟動 PostgreSQL 與 LocalStack (SQS)
+docker-compose up -d
+
+# 等待 3 秒讓服務啟動
+sleep 3
+
+# 執行資料庫遷移
+pnpm run db:migrate
+
+# 驗證連線
+pnpm run db:check
+\`\`\`
+
+### 4. 運行測試
+
+\`\`\`bash
+# 單元測試
+pnpm run test:unit
+
+# 整合測試
+pnpm run test:integration
+
+# 所有測試
+pnpm run test
+
+# 監看模式
+pnpm run test:watch
+\`\`\`
+
+### 5. 本機開發伺服器
+
+\`\`\`bash
+# 啟動所有 Workers（Miniflare 本機模擬）
+pnpm run dev
+
+# 個別 Worker 開發
+cd workers/order-ingress && pnpm run dev
+\`\`\`
+
+### 6. 運行 E2E 測試
+
+\`\`\`bash
+# 確保 Workers 與 PostgreSQL 已運行
+pnpm run test:e2e
+\`\`\`
+
+詳見 [快速啟動指南](./specs/001-minimal-payment-flow/quickstart.md)。
+
+## 部署
+
+### 部署到 Staging
+
+\`\`\`bash
+# 構建與測試
+pnpm run build
+pnpm run test
+
+# 部署 Lambda Bridge
+bash scripts/deploy-lambda.sh staging
+
+# 部署 Workers
+bash scripts/deploy-workers.sh staging
+\`\`\`
+
+### 部署到 Production
+
+\`\`\`bash
+bash scripts/deploy-lambda.sh production
+bash scripts/deploy-workers.sh production
+\`\`\`
+
+詳見 [部署文檔](./specs/001-minimal-payment-flow/spec.md#deployment-documentation-specification)。
+
+## API 文檔
+
+### 商戶下單
+
+\`\`\`bash
+curl -X POST https://order-ingress.staging.workers.dev/api/merchant/orders \\
+  -H 'X-API-Key: TEST_MERCHANT_KEY' \\
+  -H 'Content-Type: application/json' \\
+  -d '{
+    "merchant_order_no": "M-001",
+    "amount": 100,
+    "currency": "TWD",
+    "description": "Test order"
+  }'
+\`\`\`
+
+### 上游回調
+
+\`\`\`bash
+curl -X POST https://upstream-callback.staging.workers.dev/api/payment/callback/mock-provider \\
+  -H 'X-Callback-Token: MOCK_CALLBACK_TOKEN' \\
+  -H 'Content-Type: application/json' \\
+  -d '{
+    "order_id": "uuid",
+    "result": "SUCCESS",
+    "upstream_txn_id": "TXN-001"
+  }'
+\`\`\`
+
+### Health Check
+
+\`\`\`bash
+curl https://order-ingress.staging.workers.dev/health
+\`\`\`
+
+完整 API 文檔見 [OpenAPI Spec](./specs/001-minimal-payment-flow/contracts/openapi.yaml)。
+
+## 監控與日誌
+
+### 查看日誌
+
+\`\`\`bash
+# Cloudflare Workers 日誌
+wrangler tail
+
+# Lambda 日誌
+aws logs tail /aws/lambda/gateway-router-trigger-staging --follow
+
+# PostgreSQL 查詢
+psql \$DATABASE_URL -c "SELECT * FROM payment_orders LIMIT 10;"
+\`\`\`
+
+### 死信佇列查詢
+
+\`\`\`bash
+# Webhook 失敗記錄
+psql \$DATABASE_URL -c "SELECT * FROM dead_letter_records ORDER BY created_at DESC LIMIT 10;"
+
+# 事件處理失敗
+psql \$DATABASE_URL -c "SELECT * FROM event_dead_letters ORDER BY failed_at DESC LIMIT 10;"
+\`\`\`
+
+## 架構圖
+
+\`\`\`
+┌─────────────┐
+│  Merchant   │
+└──────┬──────┘
+       │ HTTP POST
+       ▼
+┌──────────────────────────────────────────────────────────┐
+│            Cloudflare Workers (Global Edge)               │
+│                                                            │
+│  ┌──────────────┐    ┌──────────────┐                     │
+│  │ order-ingress│    │ upstream-    │                     │
+│  │   Worker     │    │ callback     │                     │
+│  └──────┬───────┘    │  Worker      │                     │
+│         │            └──────┬───────┘                     │
+│         └────┬───────────────┘                            │
+│              ▼                                             │
+│         ┌─────────────┐                                    │
+│         │  mock-      │                                    │
+│         │ provider    │                                    │
+│         └─────────────┘                                    │
+└──────────────┬───────────────────────────────────────────┘
+               │ (via Lambda Bridge)
+               ▼
+      ┌─────────────────┐
+      │  AWS SQS        │
+      │ order-events-   │
+      │  queue          │
+      └────┬──────┬─────┘
+           │      │
+           ▼      ▼
+      ┌────────────────────────────────────┐
+      │   AWS Lambda Functions              │
+      │                                     │
+      │ ┌──────────┐    ┌──────────────┐   │
+      │ │gateway-  │    │webhook-      │   │
+      │ │router    │    │notifier      │   │
+      │ └──────────┘    └──────────────┘   │
+      └────┬──────────────────┬─────────────┘
+           │                  │
+           ▼                  ▼
+      ┌────────────────────────────────────┐
+      │  Cloudflare Workers (Event Handlers)
+      │                                     │
+      │ ┌──────────┐    ┌──────────────┐   │
+      │ │gateway-  │    │merchant-     │   │
+      │ │router    │    │webhook-      │   │
+      │ │Worker    │    │notifier      │   │
+      │ │          │    │Worker        │   │
+      │ └────┬─────┘    └────┬─────────┘   │
+      │      │               │             │
+      └──────┼───────────────┼─────────────┘
+             │               │ HTTP POST
+             ▼               ▼
+       ┌──────────────────────────────┐
+       │  PostgreSQL (Hyperdrive)      │
+       │                               │
+       │ • payment_orders              │
+       │ • dead_letter_records         │
+       │ • event_dead_letters          │
+       └──────────────────────────────┘
+             ▲
+             │
+          ┌──┴──────────────┐
+          │                 │
+       Merchant            SLA Monitor
+```
+
+## 規格與設計文檔
+
+- [功能規格](./specs/001-minimal-payment-flow/spec.md)
+- [技術計畫](./specs/001-minimal-payment-flow/plan.md)
+- [資料模型](./specs/001-minimal-payment-flow/data-model.md)
+- [API 契約](./specs/001-minimal-payment-flow/contracts/openapi.yaml)
+- [技術決策](./specs/001-minimal-payment-flow/research.md)
+- [實作任務](./specs/001-minimal-payment-flow/tasks.md)
+
+## 貢獻指南
+
+1. 從 `main` 分支建立功能分支：`git checkout -b feature/your-feature`
+2. 確保通過所有測試：`pnpm run test`
+3. 遵循 TypeScript + Prettier 風格規範
+4. 提交使用 Conventional Commits：`feat:`, `fix:`, `docs:` 等
+5. 建立 Pull Request 供審核
+
+## 授權
+
+MIT
+
+## 聯絡與支援
+
+- 技術文檔：[Spec](./specs/001-minimal-payment-flow/spec.md)
+- 快速啟動：[Quickstart](./specs/001-minimal-payment-flow/quickstart.md)
+- Issue Tracker：GitHub Issues
+```
+
+### 補充說明
+
+**README 應包含的額外資訊** (可選擴充):
+
+1. **章節：常見問題 (FAQ)**
+   - 如何檢查訂單狀態？
+   - 如何調試 Webhook 通知失敗？
+   - 本地測試時如何模擬上游成功/失敗？
+
+2. **章節：開發工作流**
+   - 分支命名規則
+   - Pull Request 流程
+   - Code Review 檢查清單
+
+3. **章節：效能與最佳化**
+   - Worker 冷啟動時間
+   - 資料庫查詢最佳化
+   - 快取策略
+
+4. **章節：安全性**
+   - API Key 管理
+   - Webhook 簽名驗證
+   - 網路隔離策略
