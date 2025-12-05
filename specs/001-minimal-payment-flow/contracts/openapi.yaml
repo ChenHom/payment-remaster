@@ -1,0 +1,463 @@
+openapi: 3.1.0
+info:
+  title: Payment Remaster API
+  description: 最小代收交易流 API 契約
+  version: 1.0.0
+  contact:
+    name: Payment Remaster Team
+
+servers:
+  - url: https://payment.example.com
+    description: Production
+  - url: http://localhost:8787
+    description: Local development
+
+tags:
+  - name: Merchant
+    description: 商戶 API
+  - name: Callback
+    description: 上游回調 API
+  - name: Mock
+    description: 模擬上游服務
+
+paths:
+  /api/merchant/orders:
+    post:
+      operationId: createOrder
+      summary: 商戶下單
+      description: 商戶發起一筆代收交易請求
+      tags:
+        - Merchant
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+            examples:
+              basic:
+                summary: 基本下單
+                value:
+                  merchant_order_no: "M-20251205-001"
+                  amount: 1000
+                  currency: "TWD"
+              with_description:
+                summary: 含交易描述
+                value:
+                  merchant_order_no: "M-20251205-002"
+                  amount: 2500.50
+                  currency: "TWD"
+                  description: "商品購買"
+      responses:
+        '201':
+          description: 訂單建立成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateOrderResponse'
+        '200':
+          description: 冪等請求，回傳既有訂單
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateOrderResponse'
+        '400':
+          description: 參數錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_amount:
+                  summary: 缺少金額
+                  value:
+                    error_code: "INVALID_PARAMETER"
+                    message: "amount is required"
+                    details:
+                      field: "amount"
+        '401':
+          description: API 金鑰無效
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: "INVALID_API_KEY"
+                message: "Invalid API key"
+        '409':
+          description: 冪等衝突（相同 key 但內容不一致）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: "IDEMPOTENCY_CONFLICT"
+                message: "Order exists with different parameters"
+                details:
+                  existing_order_id: "550e8400-e29b-41d4-a716-446655440000"
+        '429':
+          description: 超出頻率限制
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: "RATE_LIMIT_EXCEEDED"
+                message: "Too many requests"
+
+  /api/payment/callback/mock-provider:
+    post:
+      operationId: receiveCallback
+      summary: 接收上游回調
+      description: 接收模擬上游的交易結果回調
+      tags:
+        - Callback
+      parameters:
+        - name: X-Callback-Token
+          in: header
+          description: 回調驗證 Token
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CallbackRequest'
+            examples:
+              success:
+                summary: 成功回調
+                value:
+                  order_id: "550e8400-e29b-41d4-a716-446655440000"
+                  result: "SUCCESS"
+                  upstream_txn_id: "MOCK-TXN-12345"
+              failed:
+                summary: 失敗回調
+                value:
+                  order_id: "550e8400-e29b-41d4-a716-446655440000"
+                  result: "FAILED"
+                  upstream_txn_id: "MOCK-TXN-12345"
+                  failure_code: "INSUFFICIENT_FUNDS"
+                  failure_message: "餘額不足"
+      responses:
+        '200':
+          description: 回調已接收
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CallbackResponse'
+
+  /mock/pay:
+    post:
+      operationId: mockPay
+      summary: 模擬上游支付
+      description: 模擬上游金流服務的支付請求
+      tags:
+        - Mock
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MockPayRequest'
+            example:
+              order_id: "550e8400-e29b-41d4-a716-446655440000"
+              amount: 1000
+              currency: "TWD"
+              callback_url: "https://payment.example.com/api/payment/callback/mock-provider"
+      responses:
+        '200':
+          description: 請求已接受
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MockPayResponse'
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: 商戶 API 金鑰
+
+  schemas:
+    # Request Schemas
+    CreateOrderRequest:
+      type: object
+      required:
+        - merchant_order_no
+        - amount
+        - currency
+      properties:
+        merchant_order_no:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: 商戶訂單編號
+          example: "M-20251205-001"
+        amount:
+          type: number
+          minimum: 0.0001
+          description: 交易金額（正數）
+          example: 1000
+        currency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+          description: 幣別（ISO-4217）
+          example: "TWD"
+        description:
+          type: string
+          maxLength: 500
+          description: 交易描述
+          example: "商品購買"
+
+    CallbackRequest:
+      type: object
+      required:
+        - order_id
+        - result
+        - upstream_txn_id
+      properties:
+        order_id:
+          type: string
+          format: uuid
+          description: 平台訂單編號
+        result:
+          type: string
+          enum:
+            - SUCCESS
+            - FAILED
+          description: 交易結果
+        upstream_txn_id:
+          type: string
+          minLength: 1
+          description: 上游交易編號
+        failure_code:
+          type: string
+          description: 失敗代碼（失敗時）
+        failure_message:
+          type: string
+          description: 失敗訊息（失敗時）
+
+    MockPayRequest:
+      type: object
+      required:
+        - order_id
+        - amount
+        - currency
+        - callback_url
+      properties:
+        order_id:
+          type: string
+          format: uuid
+          description: 平台訂單編號
+        amount:
+          type: number
+          description: 交易金額
+        currency:
+          type: string
+          description: 幣別
+        callback_url:
+          type: string
+          format: uri
+          description: 回調通知 URL
+
+    # Response Schemas
+    CreateOrderResponse:
+      type: object
+      required:
+        - order_id
+        - status
+        - created_at
+      properties:
+        order_id:
+          type: string
+          format: uuid
+          description: 平台訂單編號
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        status:
+          type: string
+          enum:
+            - PENDING
+          description: 訂單狀態
+        created_at:
+          type: string
+          format: date-time
+          description: 建立時間
+          example: "2025-12-05T10:00:00Z"
+
+    CallbackResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum:
+            - RECEIVED
+          description: 回調接收狀態
+
+    MockPayResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum:
+            - ACCEPTED
+          description: 請求接受狀態
+
+    ErrorResponse:
+      type: object
+      required:
+        - error_code
+        - message
+      properties:
+        error_code:
+          type: string
+          description: 錯誤代碼
+          enum:
+            - INVALID_PARAMETER
+            - INVALID_API_KEY
+            - IDEMPOTENCY_CONFLICT
+            - ORDER_NOT_FOUND
+            - INVALID_STATUS_TRANSITION
+            - UPSTREAM_UNAVAILABLE
+            - WEBHOOK_FAILED
+            - RATE_LIMIT_EXCEEDED
+        message:
+          type: string
+          description: 錯誤訊息
+        details:
+          type: object
+          additionalProperties: true
+          description: 額外錯誤細節
+
+    # Webhook Payload (for documentation)
+    WebhookPayload:
+      type: object
+      description: 商戶 Webhook 通知格式
+      required:
+        - order_id
+        - merchant_order_no
+        - status
+        - amount
+        - currency
+        - updated_at
+      properties:
+        order_id:
+          type: string
+          format: uuid
+          description: 平台訂單編號
+        merchant_order_no:
+          type: string
+          description: 商戶訂單編號
+        status:
+          type: string
+          enum:
+            - SUCCESS
+            - FAILED
+          description: 訂單狀態
+        amount:
+          type: number
+          description: 交易金額
+        currency:
+          type: string
+          description: 幣別
+        failure_code:
+          type: string
+          description: 失敗代碼（失敗時）
+        failure_reason:
+          type: string
+          description: 失敗原因（失敗時）
+        updated_at:
+          type: string
+          format: date-time
+          description: 狀態更新時間
+
+    # Event Schemas (for documentation)
+    OrderCreatedEvent:
+      type: object
+      description: 訂單建立事件
+      required:
+        - event_id
+        - event_type
+        - occurred_at
+        - trace_id
+        - payload
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+          const: "OrderCreated"
+        occurred_at:
+          type: string
+          format: date-time
+        trace_id:
+          type: string
+        payload:
+          type: object
+          properties:
+            order_id:
+              type: string
+              format: uuid
+            merchant_id:
+              type: string
+            amount:
+              type: string
+            currency:
+              type: string
+            initial_status:
+              type: string
+              const: "PENDING"
+
+    OrderStatusChangedEvent:
+      type: object
+      description: 訂單狀態變更事件
+      required:
+        - event_id
+        - event_type
+        - occurred_at
+        - trace_id
+        - payload
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+          const: "OrderStatusChanged"
+        occurred_at:
+          type: string
+          format: date-time
+        trace_id:
+          type: string
+        payload:
+          type: object
+          properties:
+            order_id:
+              type: string
+              format: uuid
+            merchant_id:
+              type: string
+            old_status:
+              type: string
+              enum:
+                - PENDING
+                - PROCESSING
+            new_status:
+              type: string
+              enum:
+                - PROCESSING
+                - SUCCESS
+                - FAILED
+            failure_code:
+              type: string
+            failure_reason:
+              type: string
