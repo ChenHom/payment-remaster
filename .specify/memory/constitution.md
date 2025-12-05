@@ -1,50 +1,170 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!--
+============================================================================
+同步影響報告 (Sync Impact Report)
+============================================================================
+版本變更: 無（新建立） → 1.0.0
+新增原則:
+  - I. 模組邊界清晰 (Bounded Context)
+  - II. Serverless 優先
+  - III. 事件驅動架構
+  - IV. 合約先行
+  - V. 可觀測性
+  - VI. 測試驅動
+新增章節:
+  - 核心原則 (Core Principles)
+  - 技術約束 (Technical Constraints)
+  - 開發流程 (Development Workflow)
+  - 治理規範 (Governance)
+移除章節: 無
+範本更新狀態:
+  - .specify/templates/plan-template.md ✅ 無需更新（通用範本）
+  - .specify/templates/spec-template.md ✅ 無需更新（通用範本）
+  - .specify/templates/tasks-template.md ✅ 無需更新（通用範本）
+待辦事項: 無
+============================================================================
+-->
+
+# Payment Remaster Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. 模組邊界清晰 (Bounded Context)
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+每個模組必須具備明確的業務邊界與職責範圍：
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+- 每個模組必須對應單一業務領域（例如：代收訂單、上游路由、對帳結算）
+- 模組之間必須透過明確定義的介面（API、事件）溝通，禁止直接存取他方內部資料
+- 模組必須可獨立部署、獨立測試、獨立擴展
+- 模組命名必須反映其業務職責，而非技術實作細節
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+**理由**：金流平台包含 21+ 個潛在模組，清晰的邊界確保系統可維護性與團隊協作效率。
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### II. Serverless 優先
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+本專案以 Serverless 架構為核心練習目標：
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+- 所有模組必須設計為無狀態（Stateless），狀態儲存於外部服務
+- 每個函式必須具備單一職責，執行時間必須可預測
+- 必須考慮冷啟動影響，關鍵路徑必須設計預熱機制
+- 必須設計適當的並發控制與限流策略
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+**理由**：Serverless 架構能有效練習系統拆解能力，並降低營運成本。
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+### III. 事件驅動架構
+
+模組間通訊必須優先採用事件驅動模式：
+
+- 交易狀態變更、對帳完成、提款申請等必須透過事件發布
+- 事件必須具備冪等性處理能力
+- 必須實作重試機制與死信佇列（Dead Letter Queue）
+- 事件格式必須版本化，支援向後相容
+
+**理由**：事件驅動架構確保模組解耦，並支援非同步處理與系統韌性。
+
+### IV. 合約先行
+
+所有對外介面必須先定義合約再實作：
+
+- API 端點必須先定義 OpenAPI/Swagger 規格
+- 事件格式必須先定義 JSON Schema
+- 模組間介面必須先定義合約測試
+- 合約變更必須經過版本控制與向後相容性審查
+
+**理由**：合約先行確保團隊可平行開發，並減少整合問題。
+
+### V. 可觀測性
+
+所有模組必須具備完整的可觀測性設計：
+
+- 每筆交易必須具備完整的追蹤識別碼（Trace ID）
+- 必須記錄結構化日誌，包含：時間、模組、操作、結果、耗時
+- 必須實作健康檢查端點與關鍵指標（成功率、延遲、錯誤率）
+- 必須設定告警規則，異常時主動通知
+
+**理由**：金流系統對穩定性要求極高，可觀測性是快速定位與解決問題的關鍵。
+
+### VI. 測試驅動
+
+採用 TDD 開發流程，確保程式碼品質：
+
+- 新功能必須先撰寫測試，測試通過後才視為完成
+- 單元測試覆蓋核心業務邏輯
+- 整合測試覆蓋模組間介面與上游金流 API 模擬
+- 合約測試確保模組間介面一致性
+
+**理由**：金流系統的正確性至關重要，測試是確保品質的基礎。
+
+## Technical Constraints
+
+### 模組分類與優先順序
+
+依據業務領域分為六大類別：
+
+1. **交易流核心模組**（代收訂單接收、交易路由、上游回傳同步、會員通知、退款作廢、撥款提領）
+2. **會員與設定模組**（商戶管理、金流上游管理、支付通路設定、費率規則、風控限額）
+3. **對帳與結算模組**（對帳檔接收解析、自動對帳引擎、結算分潤計算）
+4. **報表與稽核模組**（交易查詢報表、稽核操作紀錄）
+5. **管理後台模組**（帳號權限管理、多租戶環境設定）
+6. **技術橫切模組**（事件總線、重試與死信佇列、監控告警）
+
+### 技術選型指引
+
+- **運算**：優先使用 Serverless Functions（如 AWS Lambda、GCP Cloud Functions）
+- **儲存**：關聯式資料使用託管資料庫服務；非關聯式資料使用 NoSQL 或物件儲存
+- **訊息**：使用託管訊息佇列服務（如 AWS SQS、GCP Pub/Sub）
+- **API**：RESTful API 搭配 OpenAPI 規格；內部使用事件驅動
+
+### 安全性要求
+
+- 所有 API 必須驗證簽章
+- 敏感資料必須加密儲存與傳輸
+- 必須實作 IP 白名單與存取控制
+- 必須記錄所有安全相關操作日誌
+
+## Development Workflow
+
+### 開發流程
+
+1. **規格定義**：使用 spec-template.md 定義功能規格與使用者故事
+2. **計畫擬定**：使用 plan-template.md 規劃技術實作方案
+3. **任務拆解**：使用 tasks-template.md 拆解為可執行任務
+4. **測試先行**：先撰寫測試案例，確保需求理解正確
+5. **實作開發**：實作功能，確保測試通過
+6. **程式碼審查**：提交 Pull Request，經審查後合併
+
+### 程式碼品質
+
+- 提交訊息必須遵循 Conventional Commits 規範
+- 每次提交必須聚焦於單一邏輯變更
+- 合併前必須通過 CI 檢查（測試、Lint、格式化）
+
+### 模組開發順序建議
+
+首次練習建議從「代收訂單流」開始，涵蓋：
+- 代收訂單接收模組（Merchant Order Ingress）
+- 交易路由與上游轉發模組（Gateway Router）
+- 上游回傳與狀態同步模組（Upstream Callback & Sync）
+- 會員通知模組（Merchant Notification）
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+### 修訂程序
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+1. 任何原則變更必須提出書面說明，包含變更理由與影響評估
+2. 變更必須經過團隊審查與核准
+3. 變更必須更新版本號並記錄於本文件
+
+### 版本控制政策
+
+採用語意化版本號（Semantic Versioning）：
+- **MAJOR**：原則移除或重新定義（不向後相容）
+- **MINOR**：新增原則或章節、重大擴充說明
+- **PATCH**：措辭修正、錯字修復、非實質性調整
+
+### 合規審查
+
+- 所有 Pull Request 必須驗證是否符合本憲章原則
+- 違反原則的程式碼必須附上合理說明與豁免理由
+- 定期（每季）審視憲章是否需要更新
+
+**Version**: 1.0.0 | **Ratified**: 2025-12-05 | **Last Amended**: 2025-12-05
