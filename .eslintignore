@@ -5,3 +5,7 @@ coverage
 .aws-sam
 .wrangler
 !.eslintrc.json
+
+# Local temp and IDE directories
+tmp/
+.idea/

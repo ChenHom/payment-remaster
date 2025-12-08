@@ -13,3 +13,15 @@ coverage
 localstack
 shared/db/postgres-data
 .DS_Store
+
+# Temp files and IDE/editor directories
+tmp/
+.idea/
+
+# Kubernetes and secrets
+.kube/
+secrets/
+*.secret.yaml
+# Private certs / keys
+*.key
+*.crt

@@ -161,3 +161,15 @@ samconfig.toml
 
 # macOS system files
 .DS_Store
+
+# Local temp files and IDE/editor directories
+tmp/
+.idea/
+# Local Kubernetes and secrets
+.kube/
+secrets/
+*.secret.yaml
+# Private certs / keys
+*.key
+*.crt
+
