@@ -1,0 +1,33 @@
+# Contract: Production Deployment Trigger
+
+This document defines the inputs required to manually trigger the Production deployment workflow via GitHub Actions `workflow_dispatch`.
+
+## Workflow: `deploy-production.yaml`
+
+### Inputs
+
+| Name | Type | Required | Default | Description |
+|------|------|----------|---------|-------------|
+| `confirm_deploy` | boolean | true | `false` | **Safety Check**: Must explicitly check this box to proceed with deployment. |
+| `log_level` | choice | false | `INFO` | Log level for the deployment scripts. Options: `DEBUG`, `INFO`, `WARN`. |
+| `skip_tests` | boolean | false | `false` | **Emergency Only**: Skip pre-deployment tests. Use with extreme caution. |
+
+### Execution Flow
+
+1. **Validation**: Check if `confirm_deploy` is true. If false, fail immediately.
+2. **Checkout**: Checkout the `main` branch.
+3. **Build & Test**: Run standard build and tests (unless `skip_tests` is true).
+4. **Deploy**: Execute deployment scripts targeting the `production` environment.
+
+### Output
+
+The workflow run will provide the following artifacts/outputs:
+
+- **Deployment Status**: Success/Failure indicator.
+- **Service URLs**:
+  - Order Ingress URL
+  - Mock Provider URL
+  - Upstream Callback URL
+- **Lambda Resources**:
+  - SQS Queue URL
+  - DLQ URL

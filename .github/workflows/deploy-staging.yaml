@@ -1,0 +1,76 @@
+name: Deploy Staging
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: staging
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup
+
+      - name: Pre-flight Secrets Validation
+        run: ./scripts/validate-ci-secrets.sh
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          MOCK_CALLBACK_TOKEN: ${{ secrets.MOCK_CALLBACK_TOKEN }}
+          TEST_MERCHANT_KEY: ${{ secrets.TEST_MERCHANT_KEY }}
+          CLOUDFLARE_SUBDOMAIN: ${{ vars.CLOUDFLARE_SUBDOMAIN }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+
+      - name: Build & Test
+        run: |
+          pnpm exec tsc --noEmit
+          pnpm vitest run --reporter=verbose
+        env:
+          TEST_MERCHANT_KEY: ${{ secrets.TEST_MERCHANT_KEY }}
+          MOCK_CALLBACK_TOKEN: ${{ secrets.MOCK_CALLBACK_TOKEN }}
+          SQS_QUEUE_URL: "dummy" # Some tests might need it
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION || 'ap-northeast-1' }}
+
+      - name: Deploy Lambda Bridge
+        id: deploy-lambda
+        run: ./scripts/deploy-lambda.sh staging
+        env:
+          # Requires CLOUDFLARE_SUBDOMAIN to be set in Repository Variables
+          GATEWAY_ROUTER_URL: "https://gateway-router.${{ vars.CLOUDFLARE_SUBDOMAIN }}.workers.dev"
+          WEBHOOK_NOTIFIER_URL: "https://merchant-webhook-notifier.${{ vars.CLOUDFLARE_SUBDOMAIN }}.workers.dev"
+
+      - name: Deploy Workers
+        run: ./scripts/deploy-workers.sh staging
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SQS_QUEUE_URL: ${{ steps.deploy-lambda.outputs.sqs_queue_url }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          MOCK_CALLBACK_TOKEN: ${{ secrets.MOCK_CALLBACK_TOKEN }}
+          TEST_MERCHANT_KEY: ${{ secrets.TEST_MERCHANT_KEY }}
+
+      - name: Verify Deployment
+        run: |
+          echo "Verifying Staging Deployment..."
+          ORDER_INGRESS_URL="https://order-ingress.${{ vars.CLOUDFLARE_SUBDOMAIN }}.workers.dev"
+          echo "Checking $ORDER_INGRESS_URL/health"
+          curl -f -m 10 "$ORDER_INGRESS_URL/health"

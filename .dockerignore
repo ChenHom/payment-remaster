@@ -1,0 +1,15 @@
+node_modules
+dist
+build
+coverage
+.git
+.gitignore
+.dockerignore
+.env
+.env.*
+!.env.example
+.aws-sam
+.wrangler
+localstack
+shared/db/postgres-data
+.DS_Store

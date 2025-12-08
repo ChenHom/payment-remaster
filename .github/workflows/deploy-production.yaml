@@ -1,0 +1,104 @@
+name: Deploy Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_deploy:
+        description: 'Safety Check: Must explicitly check this to proceed'
+        required: true
+        type: boolean
+        default: false
+      log_level:
+        description: 'Log level'
+        required: false
+        type: choice
+        default: 'INFO'
+        options:
+          - DEBUG
+          - INFO
+          - WARN
+      skip_tests:
+        description: 'Emergency Only: Skip pre-deployment tests'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Validation
+        if: ${{ inputs.confirm_deploy != true }}
+        run: |
+          echo "Error: You must check 'confirm_deploy' to run this workflow."
+          exit 1
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup
+
+      - name: Pre-flight Secrets Validation
+        run: ./scripts/validate-ci-secrets.sh
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          MOCK_CALLBACK_TOKEN: ${{ secrets.MOCK_CALLBACK_TOKEN }}
+          TEST_MERCHANT_KEY: ${{ secrets.TEST_MERCHANT_KEY }}
+          CLOUDFLARE_SUBDOMAIN: ${{ vars.CLOUDFLARE_SUBDOMAIN }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+
+      - name: Build & Test
+        if: ${{ inputs.skip_tests != true }}
+        run: |
+          pnpm exec tsc --noEmit
+          pnpm vitest run --reporter=verbose
+        env:
+          TEST_MERCHANT_KEY: ${{ secrets.TEST_MERCHANT_KEY }}
+          MOCK_CALLBACK_TOKEN: ${{ secrets.MOCK_CALLBACK_TOKEN }}
+          SQS_QUEUE_URL: "dummy"
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION || 'ap-northeast-1' }}
+
+      - name: Deploy Lambda Bridge
+        id: deploy-lambda
+        run: ./scripts/deploy-lambda.sh production
+        env:
+          LOG_LEVEL: ${{ inputs.log_level }}
+          # Assuming production environment uses -production suffix in Worker names
+          GATEWAY_ROUTER_URL: "https://gateway-router-production.${{ vars.CLOUDFLARE_SUBDOMAIN }}.workers.dev"
+          WEBHOOK_NOTIFIER_URL: "https://merchant-webhook-notifier-production.${{ vars.CLOUDFLARE_SUBDOMAIN }}.workers.dev"
+
+      - name: Deploy Workers
+        run: ./scripts/deploy-workers.sh production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SQS_QUEUE_URL: ${{ steps.deploy-lambda.outputs.sqs_queue_url }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          MOCK_CALLBACK_TOKEN: ${{ secrets.MOCK_CALLBACK_TOKEN }}
+          TEST_MERCHANT_KEY: ${{ secrets.TEST_MERCHANT_KEY }}
+          SKIP_TESTS: ${{ inputs.skip_tests }}
+
+      - name: Verify Deployment
+        run: |
+          echo "Verifying Production Deployment..."
+          ORDER_INGRESS_URL="https://order-ingress-production.${{ vars.CLOUDFLARE_SUBDOMAIN }}.workers.dev"
+          echo "Checking $ORDER_INGRESS_URL/health"
+          curl -f -m 10 "$ORDER_INGRESS_URL/health"

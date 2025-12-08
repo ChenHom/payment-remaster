@@ -148,6 +148,12 @@ echo "$OUTPUTS" | jq -r '.[] | "  \(.OutputKey): \(.OutputValue)"'
 ORDER_QUEUE_URL=$(echo "$OUTPUTS" | jq -r '.[] | select(.OutputKey=="OrderEventsQueueUrl") | .OutputValue')
 STATUS_QUEUE_URL=$(echo "$OUTPUTS" | jq -r '.[] | select(.OutputKey=="StatusChangedQueueUrl") | .OutputValue')
 
+# Output for GitHub Actions or other CI tools
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+  echo "sqs_queue_url=$ORDER_QUEUE_URL" >> "$GITHUB_OUTPUT"
+  log_info "✓ Exported sqs_queue_url to GITHUB_OUTPUT"
+fi
+
 echo ""
 log_info "=== Deployment Summary ==="
 echo "  Stack Name: $STACK_NAME"

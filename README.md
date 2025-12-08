@@ -1,5 +1,8 @@
 # Payment Remaster
 
+[![Deploy Staging](https://github.com/ChenHom/payment-remaster/actions/workflows/deploy-staging.yaml/badge.svg)](https://github.com/ChenHom/payment-remaster/actions/workflows/deploy-staging.yaml)
+[![Deploy Production](https://github.com/ChenHom/payment-remaster/actions/workflows/deploy-production.yaml/badge.svg)](https://github.com/ChenHom/payment-remaster/actions/workflows/deploy-production.yaml)
+
 最小代收交易流實作 - 使用 Cloudflare Workers、PostgreSQL 和 AWS SQS 建構的事件驅動支付系統。
 
 ## 專案概述
@@ -40,7 +43,7 @@
 │                ▼                           ▼                                 │
 │       ┌───────────────┐           ┌─────────────────────┐                   │
 │       │gateway-router │           │merchant-webhook-    │                   │
-│       │   Worker      │           │notifier Worker      │──▶ Merchant       │
+│       │   Worker      │           │Notifier Worker      │──▶ Merchant       │
 │       └───────┬───────┘           └─────────────────────┘    Webhook        │
 │               │                                                              │
 │               ▼                                                              │
@@ -313,6 +316,35 @@ pnpm vitest run tests/contract
 # 監看模式
 pnpm vitest
 ```
+
+## CI/CD 流程
+
+本專案使用 GitHub Actions 進行自動化部署。
+
+### 環境與機密 (Environments & Secrets)
+
+您必須在 GitHub 設定兩個環境：`staging` (暫存環境) 和 `production` (生產環境)。
+
+**必要儲存庫機密 (Repository Secrets)**：
+- `AWS_ACCESS_KEY_ID`: AWS 存取金鑰 ID
+- `AWS_SECRET_ACCESS_KEY`: AWS 私密存取金鑰
+- `CLOUDFLARE_API_TOKEN`: Cloudflare API Token (需有 Workers 權限)
+- `CLOUDFLARE_ACCOUNT_ID`: Cloudflare 帳戶 ID
+- `AWS_REGION`: AWS 區域 (選填，預設: ap-northeast-1)
+
+**必要儲存庫變數 (Repository Variables)**：
+- `CLOUDFLARE_SUBDOMAIN`: 您的 Cloudflare Workers 子網域 (例如 `hom`)
+
+**必要環境機密 (Environment Secrets)** (Staging 和 Production 需分別設定)：
+- `DATABASE_URL`: PostgreSQL 連線字串
+- `WEBHOOK_SECRET`: Webhook 簽名密鑰
+- `MOCK_CALLBACK_TOKEN`: Mock Provider 驗證 Token
+- `TEST_MERCHANT_KEY`: 測試用商戶 API 金鑰
+
+### 工作流程 (Workflows)
+
+- **Deploy Staging**: 推送至 `main` 分支時自動觸發。
+- **Deploy Production**: 透過 GitHub Actions 頁面手動觸發。需要勾選確認部署。
 
 ## License
 

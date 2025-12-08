@@ -16,6 +16,7 @@ set -euo pipefail
 #   CLOUDFLARE_API_TOKEN: Cloudflare API token for wrangler
 #
 # Optional Environment Variables:
+#   SQS_QUEUE_URL: URL of the SQS queue (overrides wrangler.toml)
 #   SKIP_TESTS: Set to 'true' to skip running tests before deploy
 #######################################################################
 
@@ -73,6 +74,11 @@ if ! wrangler whoami &> /dev/null; then
   exit 1
 fi
 log_info "✓ Cloudflare credentials configured"
+
+# Check for SQS Queue URL override
+if [[ -n "${SQS_QUEUE_URL:-}" ]]; then
+  log_info "SQS Queue URL override active: $SQS_QUEUE_URL"
+fi
 
 #######################################################################
 # Phase 2: Build (pnpm install, type-check, test, build)
@@ -143,22 +149,27 @@ for worker in "${WORKERS[@]}"; do
   cd "$WORKER_DIR"
 
   # Deploy with environment-specific settings
+  DEPLOY_CMD="wrangler deploy"
+  
   if [[ "$ENVIRONMENT" == "production" ]]; then
-    if wrangler deploy --env production 2>&1; then
+    DEPLOY_CMD="$DEPLOY_CMD --env production"
+  fi
+
+  # Inject SQS_QUEUE_URL if provided
+  if [[ -n "${SQS_QUEUE_URL:-}" ]]; then
+    DEPLOY_CMD="$DEPLOY_CMD --var SQS_QUEUE_URL:$SQS_QUEUE_URL"
+  fi
+
+  if $DEPLOY_CMD 2>&1; then
+    if [[ "$ENVIRONMENT" == "production" ]]; then
       log_info "✓ Deployed $worker to production"
-      DEPLOYED_WORKERS+=("$worker")
     else
-      log_error "✗ Failed to deploy $worker"
-      FAILED_WORKERS+=("$worker")
-    fi
-  else
-    if wrangler deploy 2>&1; then
       log_info "✓ Deployed $worker to staging"
-      DEPLOYED_WORKERS+=("$worker")
-    else
-      log_error "✗ Failed to deploy $worker"
-      FAILED_WORKERS+=("$worker")
     fi
+    DEPLOYED_WORKERS+=("$worker")
+  else
+    log_error "✗ Failed to deploy $worker"
+    FAILED_WORKERS+=("$worker")
   fi
 done
 
